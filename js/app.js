@@ -1004,6 +1004,7 @@ function createCommentElement(commenter, updated, text, commenterSpirit) {
     const p = document.createElement("p");
     const author = document.createElement("strong");
     author.textContent = authorLabel(commenter);
+    if (commenter?.user_id) author.dataset.author = commenter.user_id; // renamed in place if you change your name
     p.append(author, text || "");
     body.append(p, timeEl(updated));
     li.append(body);
@@ -1635,7 +1636,7 @@ async function openProfile() {
     openPanel("profilePanel");
     updateInstallUi();
     renderSpiritPickers();
-    $("profileName").textContent = authorLabel(me);
+    showName();
     $("guestNote").hidden = !me.anonymous;
     try {
         const u = (await skapi.getUsers({ searchFor: "user_id", value: me.user_id })).list[0];
@@ -1645,6 +1646,70 @@ async function openProfile() {
         console.error(err);
     }
 }
+
+/* ================================================================== your name */
+
+function showName() {
+    $("profileName").textContent = authorLabel(me);
+    $("nameForm").hidden = true;
+    $("profileName").parentElement.hidden = false;
+    $("nameHint").textContent = "";
+}
+
+function editName() {
+    if (me.anonymous) {
+        // Skapi does not let a temporary (guest) account edit its profile.
+        $("nameHint").innerHTML = 'Guests can\'t change their name. <a href="signup.html">Sign up</a> to choose one.';
+        return;
+    }
+    $("profileName").parentElement.hidden = true;
+    $("nameForm").hidden = false;
+    $("nameHint").textContent = "";
+    const input = $("nameInput");
+    input.value = me.name || "";
+    input.focus();
+    input.select();
+}
+
+/*
+    skapi.updateProfile({ name }) changes the name on the account. Posts and comments look their authors up
+    by user id, so they show the new name from now on; the ones already on screen are updated here too.
+*/
+async function saveName(event) {
+    event.preventDefault();
+    const name = $("nameInput").value.replace(/\s+/g, " ").trim();
+    if (!name) {
+        $("nameHint").textContent = "Please enter a name.";
+        return;
+    }
+    if (name === me.name) return showName();
+    const form = $("nameForm");
+    disableForm(form, true);
+    $("nameHint").textContent = "Saving…";
+    try {
+        const profile = await skapi.updateProfile({ name });
+        me = profile && profile.user_id ? profile : { ...me, name };
+        // The cached copy of you that posts and comments use.
+        userInfo[me.user_id] = Promise.resolve({ ...(await (userInfo[me.user_id] || Promise.resolve({}))), ...me });
+        const label = authorLabel(me);
+        for (const article of document.querySelectorAll(`article.post[data-owner="${CSS.escape(me.user_id)}"]`)) {
+            article.querySelector(".uploader").textContent = label;
+            article.querySelector(".cap-name").textContent = label;
+        }
+        for (const el of document.querySelectorAll(`[data-author="${CSS.escape(me.user_id)}"]`)) el.textContent = label;
+        if (location.hash === "#user=" + encodeURIComponent(me.user_id)) $("postsHeading").textContent = label;
+        showName();
+        toast("Name changed ✨");
+    } catch (err) {
+        $("nameHint").textContent = err.message;
+    } finally {
+        disableForm(form, false);
+    }
+}
+
+$("editNameButton").onclick = editName;
+$("nameForm").onsubmit = saveName;
+$("cancelNameButton").onclick = showName;
 
 /* ================================================================== wiring */
 

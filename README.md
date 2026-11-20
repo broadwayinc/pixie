@@ -32,7 +32,7 @@ It grew out of the photo gallery page of the Skapi HTML template (`templates-ska
 - **Post** a photo with a caption and tags, publicly or **privately** (only you can see it).
 - **Like** (double-tap the photo), **comment**, **follow** people.
 - **Activity**: likes, comments and new followers arrive live while the app is open, and as **push notifications** when it isn't. You also get a push when someone you follow posts.
-- Accounts: sign up with email confirmation, log in, reset a forgotten password, recover a removed account, or just **try it as a guest**.
+- Accounts: sign up with email confirmation, log in, **change your name**, reset a forgotten password, recover a removed account, or just **try it as a guest**.
 
 **The app**
 - Installs on Android, iPhone/iPad (iOS 16.4+) and desktop.
@@ -178,6 +178,7 @@ Every backend feature is a Skapi call from the browser. Here is what memoji uses
 
 | Skapi | How memoji uses it |
 | --- | --- |
+| `skapi.updateProfile({ name })` | **Change your name** from your profile (the pencil next to it). Posts and comments show it from then on, and the ones on screen update at once. Guests can't: Skapi doesn't let a temporary account edit its profile, so they are pointed to sign-up. |
 | `skapi.updateProfile({ misc })` | Stores your spirit animal in the profile's private `misc` field, so it follows you to other devices. A guest can't edit a profile, so a guest's choice stays in the browser. |
 | `skapi.getUsers({ searchFor: "user_id", value })` | Names of post authors and commenters (cached), and your follower and following counts (`subscribers`, `subscribed`). |
 
