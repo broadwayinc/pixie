@@ -1217,12 +1217,17 @@ body.auth-body { padding-bottom: var(--kb, 0px); }
     background: repeating-linear-gradient(90deg, var(--ink) 0 6px, transparent 6px 10px);
 }
 
-.auth-links {
-    margin: 22px 0 0;
+/* ".auth-card > p" would win over a plain class: these keep their room below the buttons above them. */
+.auth-card > .auth-links {
+    margin: 30px 0 0;
     text-align: center;
+    line-height: 1.9;
 }
 
-.auth-card .source-link { text-align: center; }
+.auth-card > .source-link {
+    margin: 18px 0 0;
+    text-align: center;
+}
 
 @media (prefers-reduced-motion: reduce) {
     *,
