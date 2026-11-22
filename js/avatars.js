@@ -16,7 +16,7 @@ export const PRESET_AVATARS = [
     {
         id: "bunny",
         name: "Bunny",
-        pixels: "...dd.....dd......dMMd...dMMd.....dMRd...dMRd.....dMRd...dMRd.....dMRdddddMRd.....dMMMMMMMMMd....dMMMMMMMMMMMd...dMMdMMMMMdMMd...dMMdMMMMMdMMd...dRMMMMdMMMMRd...dMMMMdRdMMMMd....dMMMMMMMMMd......ddMMMMMdd.........ddddd......................................"
+        pixels: "...................dd......dd.....dMMd....dMMd....dMRd....dRMd....dMRd....dRMd....dMRddddddRMd....dMMMMMMMMMMd...dMMMMMMMMMMMMd..dMMdMMMMMMdMMd..dMMdMMMMMMdMMd..dRMMMMddMMMMRd..dMMMMdRRdMMMMd...dMMMMMMMMMMd.....ddMMMMMMdd........dddddd....................."
     },
     {
         id: "frog",
@@ -46,7 +46,7 @@ export const PRESET_AVATARS = [
     {
         id: "rocket",
         name: "Rocket",
-        pixels: ".......dd.............dMMd...........dMMMwd..........dMMMwd.........dMMNNMwd........dMNxxNwd........dMNxxNwd........dMMNNMwd........dMMMMMwd.......dmdMMMMwdmd....dmmdMMMMwdmmd...dmmdddddddmmd...ddd.dDEDd.ddd........dEd.............dDd..............d......."
+        pixels: ".......dd.............dMMd...........dMMMwd..........dMMMwd.........dMMNNMwd........dMNxxNwd........dMNxxNwd........dMMNNMwd........dMMMMMwd......dmdMMMMMwdmd...dmmdMMMMMwdmmd..dmmddddddddmmd..ddd.dDEEDd.ddd.......dEEd.............dd......................."
     },
     {
         id: "potion",
