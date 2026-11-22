@@ -5,7 +5,7 @@
   "main": "index.html",
   "private": true,
   "scripts": {
-    "dev": "npx bns port=5173"
+    "dev": "npx bns port=4000"
   },
   "license": "ISC",
   "dependencies": {
