@@ -8,7 +8,7 @@ It is plain HTML and JavaScript with no build step and no server of its own. Eve
 
 It grew out of the photo gallery page of the Skapi HTML template (`templates-skapi/database.html`): the same feed, likes, comments and follows, with pixel art instead of photos. So it is also a full example of building a social app on Skapi.
 
-**Source code:** [github.com/broadwayinc/memoji](https://github.com/broadwayinc/memoji) (`git clone https://github.com/broadwayinc/memoji.git`)
+**Source code:** [github.com/broadwayinc/pixie](https://github.com/broadwayinc/pixie) (`git clone https://github.com/broadwayinc/pixie.git`)
 
 ---
 
