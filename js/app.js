@@ -1,24 +1,30 @@
 /*
-    app.js: the memoji social app.
+    app.js: the pixie social app.
 
-    It is the photo gallery of the Skapi HTML template (database.html) with a memoji camera in front:
-    - Every post is a record in the table "posts" with the photo (pic), a caption, tags and the animals in it.
-      Posts are fetched with skapi.getRecords() and skapi.getFeed(); the URL hash picks the view.
-    - A private post goes to the access group "private" and has no likes or comments.
-    - A like is a record in "likes" that references the post (reference count = number of likes).
+    It is the photo gallery of the Skapi HTML template (database.html), sharing 16 x 16 pixel art instead of photos:
+    - Every pixie is a record in the table "pixies". The art itself is in the record's data (pixels: a 256 character
+      string, see nes.js), with a caption, tags and, for a remix, the pixie it started from.
+      Pixies are fetched with skapi.getRecords() and skapi.getFeed(); the URL hash picks the view.
+    - A private pixie goes to the access group "private" and has no likes or comments.
+    - A like is a record in "likes" that references the pixie (reference count = number of likes).
     - A comment is a record in "comments" with the index name "comment.<record_id>".
-    - Following someone is skapi.subscribe() with get_feed and get_notified: their posts show in
-      "Following" and, once push notifications are on, every new post of theirs notifies you.
-    - Likes, comments and follows also notify the other user at once over skapi.postRealtime(),
+    - Following someone is skapi.subscribe() with get_feed and get_notified: their pixies show in
+      "Following" and, once push notifications are on, every new pixie of theirs notifies you.
+    - Likes, comments, remixes and follows also notify the other user at once over skapi.postRealtime(),
       or with a push notification when they are not online.
-    - Custom 3D models are private records in "spirit_models" with the model file attached.
 
     `skapi`, `userReady`, `pageUrl` and `leavingOnPurpose` come from service.js.
 */
 import {
-    ANIMALS, MemojiStage, renderThumbnail, loadFaceLandmarker, ensureAnimal, prewarmAnimals,
-    registerCustomModel, unregisterCustomModel, customModelInfo, setCustomFit,
-} from "./memoji-engine.js";
+    NES, BLACK, TRANSPARENT, PICKER_ROWS, colorName, encode, emptyPixels, isValid, toDataURL, toBlob, toIco,
+    pictureToPixels, avatarFor,
+} from "./nes.js";
+import { PixelEditor } from "./editor.js";
+import { PRESET_AVATARS } from "./avatars.js";
+
+// The table of pixies. The project may hold other tables too (this app grew out of a photo app): only records
+// of this table are shown.
+const POSTS_TABLE = "pixies";
 
 const $ = (id) => document.getElementById(id);
 const section_posts = $("section_posts");
@@ -97,407 +103,339 @@ function lockScroll(on) {
     document.body.classList.toggle("locked", on);
 }
 
-/* ================================================================== spirit animals & thumbnails */
-
-const THUMB_VERSION = "v6";
-const thumbs = {};
-const thumbQueue = [];
-let thumbBusy = false;
-
-function emojiOf(id) {
-    if (String(id).startsWith("custom")) return "✨";
-    return ANIMALS.find((a) => a.id === id)?.emoji || "🐾";
-}
-
-function nameOf(id) {
-    if (String(id).startsWith("custom:")) return customModels.find((m) => m.id === id)?.name || "My model";
-    if (id === "custom") return "Custom model";
-    return ANIMALS.find((a) => a.id === id)?.name || "Animal";
-}
-
-function placeholder(id) {
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><circle cx="32" cy="32" r="32" fill="#ffe4ee"/><text x="32" y="43" font-size="30" text-anchor="middle">${emojiOf(id)}</text></svg>`;
-    return "data:image/svg+xml," + encodeURIComponent(svg);
-}
+/* ================================================================== avatars */
 
 /*
-    A thumbnail is the 3D head rendered once. Built-in animals are kept in localStorage,
-    so they are rendered only the first time. Images show an emoji until their thumbnail is ready.
+    Everyone starts with a random 8 x 8 critter made from their user id (avatarFor() in nes.js).
+    Anyone can pick a pre-drawn avatar (avatars.js) or draw their own in the studio. It is a record in the
+    table "avatars" (any logged in user can read it) with data { pixels }. Avatars are looked up by the
+    reserved index $user_id, so only a user's own records can be their avatar.
 */
-function thumbUrl(id) {
-    if (thumbs[id]) return thumbs[id];
-    if (!String(id).startsWith("custom")) {
-        try {
-            const saved = localStorage.getItem(`memoji:thumb:${THUMB_VERSION}:${id}`);
-            if (saved) return (thumbs[id] = saved);
-        } catch (err) { /* storage blocked */ }
-    }
-    requestThumb(id);
-    return placeholder(id);
+const AVATAR_TABLE = { name: "avatars", access_group: "authorized" };
+const avatarCache = {}; // user_id -> Promise of { record_id, pixels } or null; .value once known
+
+function knownAvatar(user_id, value) {
+    const p = Promise.resolve(value);
+    p.value = value;
+    avatarCache[user_id] = p;
 }
 
-function requestThumb(id) {
-    if (thumbs[id] || thumbQueue.includes(id) || id === "custom") return;
-    if (String(id).startsWith("custom:") && !customModelInfo(id)) return;
-    thumbQueue.push(id);
-    if (!thumbBusy) setTimeout(drainThumbs, 30);
+function getAvatar(user_id) {
+    if (!avatarCache[user_id]) {
+        const request = skapi.getRecords(
+            { table: AVATAR_TABLE, index: { name: "$user_id", value: user_id } },
+            { limit: 1, ascending: false }
+        ).then((res) => {
+            const r = res.list.find((x) => x.user_id === user_id && isValid(x.data?.pixels));
+            request.value = r ? { record_id: r.record_id, pixels: r.data.pixels } : null;
+            return request.value;
+        }).catch((err) => {
+            console.warn("Avatar not loaded", err);
+            if (avatarCache[user_id] === request) delete avatarCache[user_id];
+            return null;
+        });
+        avatarCache[user_id] = request;
+    }
+    return avatarCache[user_id];
 }
 
-async function drainThumbs() {
-    const id = thumbQueue.shift();
-    if (!id) {
-        thumbBusy = false;
-        return;
-    }
-    thumbBusy = true;
-    try {
-        // The head is sculpted in a worker first, so rendering the thumbnail does not block the page.
-        if (!String(id).startsWith("custom")) await ensureAnimal(id);
-        const url = renderThumbnail(id, 160);
-        thumbs[id] = url;
-        if (!String(id).startsWith("custom")) {
-            try { localStorage.setItem(`memoji:thumb:${THUMB_VERSION}:${id}`, url); } catch (err) { /* full */ }
-        }
-        for (const img of document.querySelectorAll(`img[data-spirit="${CSS.escape(id)}"]`)) img.src = url;
-    } catch (err) {
-        console.error("Thumbnail failed", id, err);
-    }
-    setTimeout(drainThumbs, 30);
+// The avatar's picture as far as it is known now: the user's own, or their random critter.
+function avatarSrc(user_id) {
+    const own = avatarCache[user_id]?.value;
+    return own ? toDataURL(own.pixels) : avatarFor(user_id);
 }
 
-function avatarImg(spirit, size = "md") {
+function avatarImg(user_id, size = "md") {
     const img = document.createElement("img");
     img.className = "avatar " + size;
     img.alt = "";
-    img.dataset.spirit = spirit || "bunny";
-    img.src = thumbUrl(img.dataset.spirit);
+    img.dataset.avatarOf = user_id;
+    img.src = avatarSrc(user_id);
+    getAvatar(user_id).then(() => (img.src = avatarSrc(user_id)));
     return img;
 }
 
-let spirit = "bunny";
-let profileMisc = {};
-
-function readSpirit(user) {
-    try {
-        profileMisc = JSON.parse(user.misc || "{}") || {};
-    } catch (err) {
-        profileMisc = {};
-    }
-    let saved = null;
-    try { saved = localStorage.getItem("memoji:spirit:" + user.user_id); } catch (err) { /* blocked */ }
-    const id = profileMisc.spirit || saved || "bunny";
-    // An animal that is no longer offered (or a model saved by its id) falls back to the bunny.
-    return id.startsWith("custom:") || ANIMALS.some((a) => a.id === id) ? id : "bunny";
+function refreshAvatars(user_id) {
+    for (const img of document.querySelectorAll(`img[data-avatar-of="${CSS.escape(user_id)}"]`)) img.src = avatarSrc(user_id);
 }
+
+// pixels: a pixie string, or null for the random critter.
+async function setMyAvatar(pixels) {
+    const current = await getAvatar(me.user_id);
+    if (pixels) {
+        if (current?.pixels === pixels) return;
+        const rec = current
+            ? await skapi.postRecord({ pixels }, { record_id: current.record_id })
+            : await skapi.postRecord({ pixels }, { table: AVATAR_TABLE });
+        knownAvatar(me.user_id, { record_id: rec.record_id, pixels });
+    } else {
+        if (!current) return;
+        await skapi.deleteRecords({ record_id: current.record_id });
+        knownAvatar(me.user_id, null);
+    }
+    refreshAvatars(me.user_id);
+    renderAvatarPicker();
+}
+
+function renderAvatarPicker() {
+    const box = $("avatarPicker");
+    const mine = avatarCache[me.user_id]?.value?.pixels || null;
+    const options = [{ id: "random", name: "Random", pixels: null, src: avatarFor(me.user_id) }];
+    if (mine && !PRESET_AVATARS.some((a) => a.pixels === mine)) options.push({ id: "own", name: "Yours", pixels: mine });
+    options.push(...PRESET_AVATARS);
+    box.replaceChildren(...options.map((o) => {
+        const b = document.createElement("button");
+        b.type = "button";
+        b.className = "avatar-opt";
+        b.setAttribute("role", "radio");
+        b.setAttribute("aria-checked", String(o.pixels === mine));
+        b.title = o.name;
+        const img = document.createElement("img");
+        img.alt = "";
+        img.src = o.src || toDataURL(o.pixels);
+        const span = document.createElement("span");
+        span.textContent = o.name;
+        b.append(img, span);
+        b.onclick = async () => {
+            if (o.pixels === mine) return;
+            for (const x of box.querySelectorAll("button")) x.disabled = true;
+            try {
+                await setMyAvatar(o.pixels);
+                toast(o.pixels ? "Avatar saved ✨" : "Back to your random critter");
+            } catch (err) {
+                alert(err.message);
+                renderAvatarPicker();
+            }
+        };
+        return b;
+    }));
+}
+
+/* ================================================================== the studio (pixel editor) */
 
 /*
-    The spirit animal is kept in the profile's misc field (visible only to its user), so it follows the
-    user to other devices. A guest cannot edit a profile, so a guest's choice stays in this browser.
+    The studio draws pixies, and avatars too: "Draw your own" opens it in avatar mode, with your avatar on the
+    canvas. The drawing you were making stays aside, with its undo history, until you leave avatar mode.
 */
-async function setSpirit(id, { save = true } = {}) {
-    if (String(id).startsWith("custom:")) {
-        try {
-            await ensureCustomLoaded(id);
-        } catch (err) {
-            toast("Could not load that model: " + err.message);
-            return;
-        }
+let studioMode = "post";
+let stashed = null;
+
+function openAvatarStudio() {
+    setupStudio();
+    if (studioMode !== "avatar") {
+        stashed = { value: editor.value, undo: editor.undoStack.slice(), redo: editor.redoStack.slice(), remixOf };
+        studioMode = "avatar";
     }
-    spirit = id;
-    stage?.setSpirit(id);
-    try { localStorage.setItem("memoji:spirit:" + me.user_id, id); } catch (err) { /* blocked */ }
-    for (const img of document.querySelectorAll("img[data-me-avatar]")) {
-        img.dataset.spirit = id;
-        img.src = thumbUrl(id);
-    }
-    renderSpiritPickers();
-    updateFitPanel();
-    if (save && !me.anonymous && profileMisc.spirit !== id) {
-        profileMisc.spirit = id;
-        skapi.updateProfile({ misc: JSON.stringify(profileMisc) }).catch((err) => console.error(err));
-    }
-}
-
-function spiritOption(id, label) {
-    const b = document.createElement("button");
-    b.type = "button";
-    b.className = "spirit-opt";
-    b.setAttribute("role", "radio");
-    b.setAttribute("aria-checked", String(id === spirit));
-    b.setAttribute("aria-label", label);
-    b.title = label;
-    const img = document.createElement("img");
-    img.alt = "";
-    img.dataset.spirit = id;
-    img.src = thumbUrl(id);
-    const span = document.createElement("span");
-    span.textContent = label;
-    b.append(img, span);
-    b.onclick = () => setSpirit(id);
-    return b;
-}
-
-function renderSpiritPickers() {
-    const strip = $("spiritStrip");
-    const grid = $("spiritGrid");
-    const opts = ANIMALS.map((a) => [a.id, a.name]).concat(customModels.map((m) => [m.id, m.name]));
-    strip.replaceChildren(...opts.map(([id, name]) => spiritOption(id, name)));
-    const add = document.createElement("button");
-    add.type = "button";
-    add.className = "spirit-opt";
-    add.innerHTML = `<span class="add"><svg><use href="#i-plus"/></svg></span><span>Your model</span>`;
-    add.onclick = () => $("modelInput").click();
-    strip.append(add);
-
-    grid.replaceChildren(...opts.map(([id, name]) => {
-        const opt = spiritOption(id, name);
-        if (id.startsWith("custom:")) {
-            const wrap = document.createElement("div");
-            wrap.style.display = "grid";
-            wrap.style.justifyItems = "center";
-            const del = document.createElement("button");
-            del.type = "button";
-            del.className = "del";
-            del.textContent = "remove";
-            del.onclick = () => deleteCustomModel(id);
-            wrap.append(opt, del);
-            return wrap;
-        }
-        return opt;
-    }));
-    // Keep the chosen animal in view in the camera strip.
-    strip.querySelector('[aria-checked="true"]')?.scrollIntoView({ inline: "center", block: "nearest" });
-}
-
-/* ================================================================== custom 3D models */
-
-let customModels = []; // { id, name, record, fit }
-
-async function loadCustomModelList() {
-    try {
-        const res = await skapi.getRecords(
-            { table: { name: "spirit_models", access_group: "private" }, index: { name: "$user_id", value: me.user_id } },
-            { limit: 50, ascending: false }
-        );
-        customModels = res.list.map((r) => ({ id: "custom:" + r.record_id, name: r.data?.name || "My model", record: r, fit: r.data?.fit || {} }));
-    } catch (err) {
-        console.error(err);
-        customModels = [];
-    }
-}
-
-async function ensureCustomLoaded(id) {
-    if (customModelInfo(id)) return;
-    const m = customModels.find((x) => x.id === id);
-    if (!m) throw new Error("This model was removed.");
-    const file = m.record.bin?.model?.[0];
-    if (!file) throw new Error("The model file is missing.");
-    const blob = await file.getFile("blob");
-    await registerCustomModel(id, await blob.arrayBuffer(), { name: m.name, fit: m.fit });
-    requestThumb(id);
-}
-
-async function uploadCustomModel(file) {
-    const status = $("modelStatus");
-    if (!file) return;
-    if (!/\.(glb|gltf|vrm)$/i.test(file.name)) {
-        status.textContent = "Please choose a .glb, .gltf or .vrm file.";
-        return;
-    }
-    if (file.size > 40 * 1024 * 1024) {
-        status.textContent = "That file is over 40 MB.";
-        return;
-    }
-    const name = file.name.replace(/\.(glb|gltf|vrm)$/i, "").slice(0, 40) || "My model";
-    status.textContent = "Checking the model…";
-    const buffer = await file.arrayBuffer();
-    let info;
-    try {
-        info = await registerCustomModel("custom:checking", buffer, { name });
-        unregisterCustomModel("custom:checking");
-    } catch (err) {
-        status.textContent = "This file could not be read as a 3D model: " + err.message;
-        return;
-    }
-    try {
-        status.textContent = "Uploading… 0%";
-        const fit = { scale: 1, y: 0, z: 0, ry: 0 };
-        // A private record: only its uploader can read it and its file.
-        const rec = await skapi.postRecord(
-            { name, fit },
-            {
-                table: { name: "spirit_models", access_group: "private" },
-                progress: (p) => {
-                    if (p.status === "upload" && p.currentFile) status.textContent = `Uploading… ${Math.floor(p.progress)}%`;
-                },
-            },
-            [{ name: "model", file }]
-        );
-        const id = "custom:" + rec.record_id;
-        customModels.unshift({ id, name, record: rec, fit });
-        await registerCustomModel(id, buffer, { name, fit });
-        const what = info.humanoid ? "avatar (cut at the neck)" : "model";
-        status.textContent = info.expressions
-            ? `Added the ${what} "${name}" with ${info.expressions} expressions.`
-            : info.morphCount
-                ? `Added the ${what} "${name}" with ${info.morphCount} face shapes.`
-                : `Added the ${what} "${name}". It has no face shapes, so it follows your head but not your expressions.`;
-        await setSpirit(id);
-    } catch (err) {
-        status.textContent = "Upload failed: " + err.message;
-    }
-}
-
-async function deleteCustomModel(id) {
-    const m = customModels.find((x) => x.id === id);
-    if (!m || !confirm(`Remove "${m.name}"?`)) return;
-    try {
-        await skapi.deleteRecords({ record_id: m.record.record_id });
-        customModels = customModels.filter((x) => x !== m);
-        unregisterCustomModel(id);
-        if (spirit === id) await setSpirit("bunny");
-        else renderSpiritPickers();
-    } catch (err) {
-        alert(err.message);
-    }
-}
-
-// The fit sliders show while a custom model is the spirit animal, in the camera.
-let fitSaveTimer = 0;
-function updateFitPanel() {
-    const panel = $("fitPanel");
-    const info = spirit.startsWith("custom:") ? customModelInfo(spirit) : null;
-    panel.hidden = !info;
-    if (!info) return;
-    $("fitScale").value = info.fit.scale;
-    $("fitY").value = info.fit.y;
-    $("fitZ").value = info.fit.z;
-    $("fitRY").value = info.fit.ry;
-}
-
-function onFitInput() {
-    const id = spirit;
-    const fit = { scale: +$("fitScale").value, y: +$("fitY").value, z: +$("fitZ").value, ry: +$("fitRY").value };
-    setCustomFit(id, fit);
-    const m = customModels.find((x) => x.id === id);
-    if (!m) return;
-    m.fit = fit;
-    clearTimeout(fitSaveTimer);
-    fitSaveTimer = setTimeout(() => {
-        skapi.postRecord({ name: m.name, fit }, { record_id: m.record.record_id }).catch((err) => console.error(err));
-        delete thumbs[id];
-        requestThumb(id);
-    }, 800);
-}
-
-/* ================================================================== camera */
-
-let stage = null;
-let currentShot = null;
-let facing = "user";
-
-function camHint(text) {
-    $("camHint").textContent = text || "";
-}
-
-async function openCamera({ photo = null } = {}) {
-    $("cameraSheet").hidden = false;
+    remixOf = null;
+    editor.load(avatarCache[me.user_id]?.value?.pixels || encode(emptyPixels()));
+    closePanels();
+    $("studioSheet").hidden = false;
     lockScroll(true);
-    $("shutterButton").disabled = true;
-    $("backToCameraButton").hidden = true;
-    $("viewfinder").classList.remove("still");
-    if (!stage) {
-        stage = new MemojiStage($("viewfinder"), {
-            onFaces: (n) => {
-                if (stage.mode !== "live") return;
-                camHint(n === 0 ? "Looking for faces…" : "");
-                $("camStatus").textContent = n === 0 ? "memoji cam" : n === 1 ? "1 face" : `${n} faces`;
-            },
-        });
-    }
-    stage.setSpirit(spirit);
-    stage.setAutoLight($("lightButton").getAttribute("aria-pressed") === "true");
-    renderSpiritPickers();
-    updateFitPanel();
-    if (photo) {
-        prewarmAnimals([spirit, ...ANIMALS.map((a) => a.id)].filter((id) => !String(id).startsWith("custom")));
-        return usePhotoFromGallery(photo);
-    }
-    camHint("Starting camera…");
-    try {
-        const loading = loadFaceLandmarker();
-        await stage.startCamera(facing);
-        syncMirrorButton();
-        camHint("Loading the face tracker…");
-        // Every animal is sculpted in a background worker, so a new face gets its head without a pause.
-        prewarmAnimals([spirit, ...ANIMALS.map((a) => a.id).filter((id) => id !== spirit)].filter((id) => !String(id).startsWith("custom")));
-        await loading;
-        camHint("Looking for faces…");
-        $("shutterButton").disabled = false;
-    } catch (err) {
-        console.error(err);
-        const denied = err?.name === "NotAllowedError";
-        camHint(denied ? "Camera access was blocked. You can still turn a gallery photo into memoji." : err.message || "The camera could not start.");
-        $("shutterButton").disabled = true;
-    }
+    showStudioMode();
+    editor.resize();
+    studioChanged();
 }
 
-function closeCamera() {
-    if (stage) {
-        stage.stopCamera();
-        stage.stopLoop();
-        stage.clearTracks();
-    }
-    $("cameraSheet").hidden = true;
-    lockScroll(false);
+function leaveAvatarMode() {
+    if (studioMode !== "avatar") return;
+    studioMode = "post";
+    editor.load(stashed.value);
+    editor.undoStack = stashed.undo;
+    editor.redoStack = stashed.redo;
+    remixOf = stashed.remixOf;
+    stashed = null;
+    showStudioMode();
+    studioChanged();
 }
 
+function showStudioMode() {
+    const avatar = studioMode === "avatar";
+    $("studioTitle").textContent = avatar ? "Avatar" : "Studio";
+    $("nextButton").textContent = avatar ? "Save" : "Next";
+    $("studioAvatarNote").hidden = !avatar;
+    showRemixNote();
+}
 
-async function takePhoto() {
-    if (!stage) return;
-    const btn = $("shutterButton");
-    btn.disabled = true;
+async function saveAvatarFromStudio() {
+    if (editor.isEmpty()) return toast("Draw something first ✏️");
+    const button = $("nextButton");
+    button.disabled = true;
     try {
-        $("viewfinder").classList.remove("flash");
-        void $("viewfinder").offsetWidth;
-        $("viewfinder").classList.add("flash");
-        currentShot = await stage.capture();
-        openCompose(currentShot);
+        await setMyAvatar(editor.value);
+        closeStudio();
+        toast("Avatar saved ✨");
     } catch (err) {
         alert(err.message);
     } finally {
-        btn.disabled = false;
+        button.disabled = editor.isEmpty();
     }
 }
 
-async function usePhotoFromGallery(file) {
-    if (!file || !stage) return;
-    $("shutterButton").disabled = true;
-    $("viewfinder").classList.add("still");
-    camHint("Finding faces…");
+let editor = null;
+let remixOf = null; // { record_id, user_id, name } of the pixie being remixed
+let draftTimer = 0;
+
+function draftKey() {
+    return "pixie:draft:" + me.user_id;
+}
+
+/*
+    The editor is made the first time the studio opens. The drawing on it is saved in this browser as you go
+    (the draft), so closing the studio or the app never loses it.
+*/
+function setupStudio() {
+    if (editor) return;
+    editor = new PixelEditor($("pixelCanvas"), {
+        onChange: studioChanged,
+        onPick: (code) => {
+            setColor(code);
+            setTool("pen");
+        },
+    });
+    renderPalette();
+    let color = BLACK;
     try {
-        const n = await stage.showPhoto(file);
-        camHint(n ? "" : "No faces found in this photo. You can still post it.");
-        $("camStatus").textContent = n === 0 ? "No faces" : n === 1 ? "1 face" : `${n} faces`;
-        $("backToCameraButton").hidden = false;
-        $("shutterButton").disabled = false;
-        $("shutterButton").setAttribute("aria-label", "Use this photo");
+        const saved = Number(localStorage.getItem("pixie:color"));
+        if (localStorage.getItem("pixie:color") !== null && (NES[saved] || saved === TRANSPARENT)) color = saved;
+    } catch (err) { /* storage blocked */ }
+    setColor(color);
+    try {
+        const draft = JSON.parse(localStorage.getItem(draftKey()) || "null");
+        if (draft && isValid(draft.pixels)) {
+            editor.load(draft.pixels);
+            remixOf = draft.remixOf || null;
+        }
+    } catch (err) { /* no draft */ }
+    studioChanged();
+}
+
+function renderPalette() {
+    const box = $("palette");
+    box.replaceChildren();
+    for (const row of PICKER_ROWS) {
+        for (const code of row) {
+            const b = document.createElement("button");
+            b.type = "button";
+            b.className = "swatch" + (code === TRANSPARENT ? " clear" : "");
+            if (code !== TRANSPARENT) b.style.setProperty("--c", NES[code]);
+            b.dataset.code = code;
+            b.setAttribute("role", "radio");
+            b.setAttribute("aria-checked", "false");
+            b.setAttribute("aria-label", colorName(code));
+            b.title = colorName(code);
+            b.onclick = () => {
+                setColor(code);
+                if (editor.tool === "eraser" || editor.tool === "picker") setTool("pen");
+            };
+            box.append(b);
+        }
+    }
+}
+
+function setColor(code) {
+    editor.color = code;
+    for (const b of $("palette").querySelectorAll(".swatch[data-code]")) {
+        b.setAttribute("aria-checked", String(Number(b.dataset.code) === code));
+    }
+    $("currentSwatch").style.background = code === TRANSPARENT ? "" : NES[code];
+    $("currentSwatch").classList.toggle("clear", code === TRANSPARENT);
+    $("currentName").textContent = colorName(code);
+    try { localStorage.setItem("pixie:color", String(code)); } catch (err) { /* storage blocked */ }
+}
+
+function setTool(tool) {
+    editor.tool = tool;
+    for (const b of document.querySelectorAll(".tool[data-tool]")) b.setAttribute("aria-checked", String(b.dataset.tool === tool));
+    $("pixelCanvas").dataset.tool = tool;
+}
+
+function setPressed(id, on) {
+    $(id).setAttribute("aria-pressed", String(on));
+}
+
+function studioChanged() {
+    if (!editor) return;
+    $("undoButton").disabled = !editor.undoStack.length;
+    $("redoButton").disabled = !editor.redoStack.length;
+    $("nextButton").disabled = editor.isEmpty();
+    const value = editor.value;
+    $("tinyPreview").src = $("tinyPreview2").src = toDataURL(value);
+    if (studioMode === "avatar") return; // the drawing in progress is kept aside, not the avatar
+    clearTimeout(draftTimer);
+    draftTimer = setTimeout(() => {
+        try {
+            if (editor.isEmpty()) localStorage.removeItem(draftKey());
+            else localStorage.setItem(draftKey(), JSON.stringify({ pixels: value, remixOf }));
+        } catch (err) { /* storage full or blocked */ }
+    }, 250);
+}
+
+function showRemixNote() {
+    for (const id of ["studioRemixNote", "composeRemixNote"]) {
+        const p = $(id);
+        p.hidden = !remixOf || studioMode === "avatar";
+        if (!remixOf) continue;
+        p.replaceChildren(svgIcon("remix"), `Remix of ${remixOf.name || "someone"}'s pixie `);
+        if (id === "studioRemixNote") {
+            const drop = document.createElement("button");
+            drop.type = "button";
+            drop.className = "link-btn";
+            drop.textContent = "(not a remix)";
+            drop.onclick = () => {
+                remixOf = null;
+                showRemixNote();
+                studioChanged();
+            };
+            p.append(drop);
+        }
+    }
+}
+
+/*
+    Open the studio. With `pixels` (a remix, or a picture shared to pixie) the canvas starts from them;
+    whatever was on the canvas before stays one undo away.
+*/
+function openStudio({ pixels = null, remix = null } = {}) {
+    setupStudio();
+    leaveAvatarMode();
+    if (pixels) {
+        if (!editor.isEmpty() && editor.value !== pixels) editor.load(pixels, { keepHistory: true });
+        else editor.load(pixels);
+        remixOf = remix;
+    }
+    $("studioSheet").hidden = false;
+    lockScroll(true);
+    showRemixNote();
+    editor.resize();
+    studioChanged();
+}
+
+function closeStudio() {
+    leaveAvatarMode();
+    $("studioSheet").hidden = true;
+    if ($("composeSheet").hidden) lockScroll(false);
+}
+
+async function importPicture(file) {
+    if (!file) return;
+    try {
+        const pixels = await pictureToPixels(file);
+        if ($("studioSheet").hidden) openStudio();
+        editor.setPixels(pixels);
+        remixOf = null;
+        showRemixNote();
+        studioChanged();
+        toast("Picture turned into NES pixels. Undo brings back your drawing.");
     } catch (err) {
         console.error(err);
-        camHint("This photo could not be opened: " + err.message);
+        toast("This picture could not be opened.");
     }
 }
 
-function openCompose(shot) {
-    const url = URL.createObjectURL(shot.blob);
-    const img = $("img_preview");
-    if (img.src.startsWith("blob:")) URL.revokeObjectURL(img.src);
-    img.src = url;
-    const counts = {};
-    for (const a of shot.animals) counts[a] = (counts[a] || 0) + 1;
-    $("composeAnimals").textContent = shot.animals.length
-        ? "In this photo: " + Object.entries(counts).map(([a, n]) => `${emojiOf(a)} ${nameOf(a)}${n > 1 ? " ×" + n : ""}`).join(", ")
-        : "No memoji in this photo.";
+function openCompose() {
+    if (!editor || editor.isEmpty()) return toast("Draw something first ✏️");
+    $("img_preview").src = toDataURL(editor.value);
+    showRemixNote();
     $("composeSheet").hidden = false;
     $("postForm").elements.description.focus({ preventScroll: true });
 }
@@ -509,60 +447,60 @@ function closeCompose() {
 /* ================================================================== posting */
 
 /*
-    Upload a post. The JPEG from the memoji camera is attached as the file "pic"
-    (the third argument of skapi.postRecord()).
+    Share a pixie. The art goes in the record's data: a few hundred bytes, no file to upload.
 */
-async function postPhoto(event) {
+async function postPixie(event) {
     event.preventDefault();
-    if (!currentShot) return;
+    const pixels = editor?.value;
+    if (!isValid(pixels)) return toast("Draw something first ✏️");
     const form = event.target;
     disableForm(form, true);
-    postButton.textContent = "0%";
+    postButton.textContent = "Sharing…";
 
     const isPrivate = $("input_private").checked;
     const description = form.elements.description.value.trim();
     // "tag1, tag2," becomes ["tag1", "tag2"]: an empty tag would make postRecord() refuse the whole post.
     const tags = $("input_tags").value.split(",").map((t) => t.trim().replace(/^#/, "")).filter(Boolean);
-    const spiritTag = spirit.startsWith("custom:") ? "custom" : spirit;
-    if (!tags.includes(spiritTag) && spiritTag !== "custom") tags.push(spiritTag);
-    const animals = currentShot.animals.map((a) => (a.startsWith("custom:") ? "custom" : a));
-    const file = new File([currentShot.blob], "memoji.jpg", { type: "image/jpeg" });
+    const data = { pixels, description };
+    const remix = remixOf;
+    if (remix) data.remix_of = { record_id: remix.record_id, user_id: remix.user_id, name: remix.name || "" };
 
     const params = {
         table: {
-            name: "posts",
-            // A private post can only be read by its uploader. Other posts can be read by any logged in user.
+            name: POSTS_TABLE,
+            // A private pixie can only be read by its maker. Other pixies can be read by any logged in user.
             access_group: isPrivate ? "private" : "authorized",
             subscription: {
-                is_subscription_record: false, // The posts stay queryable together with everyone else's posts.
+                is_subscription_record: false, // The pixies stay queryable together with everyone else's.
                 upload_to_feed: !isPrivate, // Goes to the "Following" feed of the user's followers.
                 notify_subscribers: !isPrivate, // Followers who turned notifications on get a push.
             },
         },
         source: {
-            prevent_multiple_referencing: true, // Each user can reference (like) a post only once.
-        },
-        progress: (p) => {
-            if (p.status === "upload" && p.currentFile) postButton.textContent = `${Math.floor(p.progress)}%`;
+            prevent_multiple_referencing: true, // Each user can reference (like) a pixie only once.
         },
         tags: tags.length ? tags.slice(0, 10) : null,
     };
     if (!isPrivate) {
         params.notification = {
-            title: `${authorLabel(me)} posted a new memoji ${emojiOf(spiritTag)}`,
+            title: `${authorLabel(me)} posted a new pixie 👾`,
             body: description.slice(0, 140) || "Tap to see it",
         };
     }
 
     try {
-        const rec = await skapi.postRecord({ description, spirit: spiritTag, animals }, params, [{ name: "pic", file }]);
-        // The list fetched right after the upload may not carry the file yet: show the photo we just took.
-        if (rec?.record_id) localPics[rec.record_id] = URL.createObjectURL(currentShot.blob);
+        const rec = await skapi.postRecord(data, params);
+        if (remix && !isPrivate && rec?.record_id) {
+            notifyUser(remix.user_id, { kind: "remix", post: rec.record_id }, `🎨 ${authorLabel(me)} remixed your pixie`);
+        }
+        // A fresh canvas for the next one.
+        editor.load(encode(emptyPixels()));
+        remixOf = null;
+        try { localStorage.removeItem(draftKey()); } catch (err) { /* storage blocked */ }
         form.reset();
         closeCompose();
-        closeCamera();
-        currentShot = null;
-        toast(isPrivate ? "Saved to your private posts 🔒" : "Shared! ✨");
+        closeStudio();
+        toast(isPrivate ? "Saved to your private pixies 🔒" : "Shared! ✨");
         const target = isPrivate ? "#myprivate" : "";
         if (location.hash.slice(1) !== target.slice(1)) location.hash = target;
         else initialFetch();
@@ -578,7 +516,6 @@ async function postPhoto(event) {
 
 let fetchQuery = {};
 let fetchGeneration = 0;
-const localPics = {}; // record_id -> object URL of a photo this page just uploaded
 const pendingLikes = new Set();
 const pendingSubscriptions = new Set();
 const likeId = {}; // record_id of my like per post
@@ -617,9 +554,9 @@ function showEmptyMessage(text) {
 
 function emptyTextForView() {
     const hash = location.hash.slice(1);
-    if (hash === "feed") return "Nothing here yet. Follow people and their new posts show up here.";
-    if (hash === "myposts" || hash === "myprivate") return "No posts yet. Tap the camera to make your first memoji!";
-    return "No posts yet. Be the first: tap the camera! 📸";
+    if (hash === "feed") return "Nothing here yet. Follow people and their new pixies show up here.";
+    if (hash === "myposts" || hash === "myprivate") return "No pixies yet. Tap the brush to paint your first one!";
+    return "No pixies yet. Be the first: tap the brush and paint something! 🖌️";
 }
 
 // Returns false, and changes nothing, when a newer fetch has started meanwhile.
@@ -638,18 +575,18 @@ function showPosts(articles, fetchMore, requestGeneration) {
 function showFetchError(err, fetchMore, retry) {
     if (!navigator.onLine) {
         // The app itself works offline (it is cached); posts come back with the connection.
-        if (!section_posts.querySelector("article")) showEmptyMessage("You're offline 📴 Posts will load as soon as you're back online.");
-        else toast("You're offline. More posts will load when you're back online.");
+        if (!section_posts.querySelector("article")) showEmptyMessage("You're offline 📴 Pixies will load as soon as you're back online.");
+        else toast("You're offline. More pixies will load when you're back online.");
         fetchMoreButton.disabled = false;
         fetchMoreButton.onclick = retry;
         return;
     }
     if (fetchMore && section_posts.querySelector("article")) {
-        toast(`Unable to load more posts: ${err.message}`);
+        toast(`Unable to load more pixies: ${err.message}`);
         fetchMoreButton.disabled = false;
         fetchMoreButton.onclick = retry;
     } else {
-        showEmptyMessage(`Unable to load posts: ${err.message}`);
+        showEmptyMessage(`Unable to load pixies: ${err.message}`);
     }
 }
 
@@ -689,14 +626,16 @@ async function getFeed(fetchMore = true) {
         return;
     }
     if (requestGeneration !== fetchGeneration) return;
+    // The feed has every record the people you follow posted to it: only pixies are shown.
     const articles = await Promise.all(posts.list.map((p) => createArticleContent(p)));
     if (!showPosts(articles, fetchMore, requestGeneration)) return;
     setMore(posts.endOfList, () => getFeed());
+    if (!articles.some(Boolean) && !posts.endOfList) return getFeed(true);
 }
 
 /*
-    Most commented posts: skapi.getIndexes() lists the index names under "comment." ordered by their totals.
-    The record id of each post is taken from the index name.
+    Most commented pixies: skapi.getIndexes() lists the index names under "comment." ordered by their totals.
+    The record id of each pixie is taken from the index name.
 */
 async function getMostCommentedPost(fetchMore = true) {
     fetchMoreButton.disabled = true;
@@ -713,7 +652,8 @@ async function getMostCommentedPost(fetchMore = true) {
         return;
     }
     if (requestGeneration !== fetchGeneration) return;
-    // A post that was deleted keeps its comments' index, so its getRecords() finds nothing (null).
+    // A pixie that was deleted keeps its comments' index, so its getRecords() finds nothing (null).
+    // Comments on records of other tables are skipped by createArticleContent() (null too).
     const posts = await Promise.all(commentIndex.list.map((i) =>
         skapi.getRecords({ record_id: i.index.slice("comment.".length) })
             .then((res) => res.list[0])
@@ -728,7 +668,7 @@ async function getMostCommentedPost(fetchMore = true) {
     if (!articles.some(Boolean) && !commentIndex.endOfList) return getMostCommentedPost(true);
 }
 
-// One post, for links from notifications (#post=<record_id>).
+// One pixie, for links from notifications (#post=<record_id>).
 async function getOnePost(record_id) {
     fetchMoreButton.disabled = true;
     fetchMoreButton.hidden = true;
@@ -737,24 +677,26 @@ async function getOnePost(record_id) {
         const res = await skapi.getRecords({ record_id });
         const article = res.list[0] ? await createArticleContent(res.list[0]) : null;
         if (!showPosts([article], false, requestGeneration)) return;
-        if (!article) showEmptyMessage("This post was removed.");
+        if (!article) showEmptyMessage("This pixie was removed.");
     } catch (err) {
-        if (requestGeneration === fetchGeneration) showEmptyMessage(err.code === "NOT_EXISTS" ? "This post was removed." : `Unable to load the post: ${err.message}`);
+        if (requestGeneration === fetchGeneration) showEmptyMessage(err.code === "NOT_EXISTS" ? "This pixie was removed." : `Unable to load the pixie: ${err.message}`);
     }
 }
 
-/* ================================================================== a post */
+/* ================================================================== a pixie */
 
 /*
-    Build the <article> for a post. Text from other users is always set with textContent.
+    Build the <article> for a pixie. Text from other users is always set with textContent.
+    Records of other tables (the feed and the comment index can lead to them) are skipped: null.
 */
 async function createArticleContent(p) {
     if (!me || !p || !p.record_id) return null;
+    if (p.table?.name !== POSTS_TABLE || !isValid(p.data?.pixels)) return null;
     const record_id = p.record_id;
     const uploader = await getUserInfo(p.user_id);
     const isMine = p.user_id === me.user_id;
     const isPrivate = p.table?.access_group === "private";
-    const postSpirit = p.data?.spirit || "bunny";
+    const pixels = p.data.pixels;
 
     const article = document.createElement("article");
     article.className = "post";
@@ -765,24 +707,31 @@ async function createArticleContent(p) {
             <span class="ring"></span>
             <div class="post-who">
                 <button type="button" class="uploader"></button>
-                <small><span class="spirit-name"></span> · <span class="when"></span></small>
+                <small><span class="when"></span><span class="remix-line" hidden> · remix of <a></a></span></small>
             </div>
             <button type="button" class="btn small primary subscribe" hidden disabled>Follow</button>
-            <button type="button" class="icon-btn delete" hidden aria-label="Delete post"><svg><use href="#i-more"/></svg></button>
+            <button type="button" class="icon-btn delete" hidden aria-label="Delete pixie"><svg><use href="#i-trash"/></svg></button>
         </header>
-        <div class="photo">
-            <img alt="" hidden>
+        <div class="art">
+            <img alt="" width="16" height="16">
             <div class="heart-burst"><svg><use href="#i-heart"/></svg></div>
         </div>
         <div class="post-body">
-            <div class="actions social">
-                <button type="button" class="icon-btn like" aria-pressed="false" aria-label="Like" disabled><svg><use href="#i-heart"/></svg></button>
-                <button type="button" class="icon-btn comment-jump" aria-label="Comment"><svg><use href="#i-comment"/></svg></button>
+            <div class="actions">
+                <button type="button" class="icon-btn like social" aria-pressed="false" aria-label="Like" disabled><svg><use href="#i-heart"/></svg></button>
+                <button type="button" class="icon-btn comment-jump social" aria-label="Comment"><svg><use href="#i-comment"/></svg></button>
+                <span class="spacer"></span>
+                <button type="button" class="btn small remix" title="Open a copy in your studio"><svg><use href="#i-remix"/></svg> Remix</button>
+                <button type="button" class="icon-btn download" aria-label="Download" title="Download" aria-haspopup="menu" aria-expanded="false"><svg><use href="#i-download"/></svg></button>
+            </div>
+            <div class="download-menu" role="menu" hidden>
+                <button type="button" role="menuitem" data-format="png512">PNG <small>512×512</small></button>
+                <button type="button" role="menuitem" data-format="png16">PNG <small>16×16</small></button>
+                <button type="button" role="menuitem" data-format="ico">ICO <small>16×16 icon</small></button>
             </div>
             <p class="likes-line social"><span class="like-count">0</span> <span class="like-word">likes</span></p>
             <p class="caption"><strong class="cap-name"></strong><span class="description"></span></p>
             <p class="tags"></p>
-            <p class="animals-line"></p>
             <section class="comments-block social">
                 <h3>Comments (<span class="comment-count">0</span>)</h3>
                 <ul class="comments"></ul>
@@ -794,55 +743,40 @@ async function createArticleContent(p) {
             </section>
         </div>`;
 
-    article.querySelector(".ring").append(avatarImg(postSpirit, "md"));
+    article.querySelector(".ring").append(avatarImg(p.user_id, "md"));
     const name = authorLabel(uploader);
     const upBtn = article.querySelector(".uploader");
     upBtn.textContent = name;
     upBtn.onclick = () => (location.hash = "user=" + encodeURIComponent(p.user_id));
     article.querySelector(".cap-name").textContent = name;
-    article.querySelector(".spirit-name").textContent = `${emojiOf(postSpirit)} ${nameOf(postSpirit)}`;
     article.querySelector(".when").append(timeEl(p.uploaded || p.updated));
 
-    const imageUrl = p.bin?.pic?.[0]?.url;
-    const img = article.querySelector(".photo img");
-    if (!imageUrl && localPics[record_id]) {
-        img.src = localPics[record_id];
-        img.alt = p.data?.description || "memoji photo";
-        img.hidden = false;
-    } else if (!imageUrl) {
-        // A post fetched in the moment after its upload: read it again shortly for its file.
-        setTimeout(() => {
-            skapi.getRecords({ record_id }).then((res) => {
-                const f = res.list[0]?.bin?.pic?.[0];
-                if (!f) return;
-                (isPrivate ? f.getFile("endpoint") : Promise.resolve(f.url)).then((u) => {
-                    img.src = u;
-                    img.alt = p.data?.description || "memoji photo";
-                    img.hidden = false;
-                });
-            }).catch((err) => console.error(err));
-        }, 1500);
-    }
-    if (imageUrl) {
-        img.alt = p.data?.description || "memoji photo";
-        img.hidden = false;
-        img.loading = "lazy";
-        img.decoding = "async";
-        // A private post's file is read through a signed, cached endpoint.
-        if (isPrivate) {
-            p.bin.pic[0].getFile("endpoint").then((u) => (img.src = u)).catch(() => (img.src = imageUrl));
-        } else {
-            img.src = imageUrl;
-        }
-    }
+    // The art: a 16 x 16 PNG made from the record's pixels, scaled up with crisp pixels by the CSS.
+    const img = article.querySelector(".art img");
+    img.src = toDataURL(pixels);
+    img.alt = p.data?.description ? `Pixel art: ${p.data.description}` : `Pixel art by ${name}`;
     if (isPrivate) {
         const tag = document.createElement("span");
         tag.className = "private-tag";
         tag.append(svgIcon("lock"), "Private");
-        article.querySelector(".photo").append(tag);
+        article.querySelector(".art").append(tag);
+    }
+
+    // A remix links to the pixie it started from, with its maker's current name.
+    const from = p.data?.remix_of;
+    if (from?.record_id) {
+        const line = article.querySelector(".remix-line");
+        const a = line.querySelector("a");
+        a.href = "#post=" + encodeURIComponent(from.record_id);
+        a.textContent = from.name || "a pixie";
+        line.hidden = false;
+        if (from.user_id) getUserInfo(from.user_id).then((u) => {
+            if (u?.user_id) a.textContent = authorLabel(u);
+        });
     }
 
     article.querySelector(".description").textContent = p.data?.description || "";
+    if (!p.data?.description) article.querySelector(".caption").classList.add("no-text");
 
     const tagsP = article.querySelector(".tags");
     if (p.tags?.length) {
@@ -856,19 +790,39 @@ async function createArticleContent(p) {
         tagsP.hidden = true;
     }
 
-    const animals = Array.isArray(p.data?.animals) ? p.data.animals : [];
-    const animalsLine = article.querySelector(".animals-line");
-    if (animals.length > 1) animalsLine.textContent = "With " + animals.slice(1).map((a) => `${emojiOf(a)} ${nameOf(a)}`).join(", ");
-    else animalsLine.hidden = true;
+    // Remix: a copy in your own studio, credited to this pixie.
+    article.querySelector(".remix").onclick = () => {
+        if (editor && !editor.isEmpty() && editor.value !== pixels && !confirm("Start a remix? Your current drawing stays one undo away.")) return;
+        openStudio({ pixels, remix: isMine ? null : { record_id, user_id: p.user_id, name } });
+    };
+    // Download: a big PNG, a 16 x 16 PNG, or a 16 x 16 .ico icon. Transparent pixels stay transparent.
+    const downloadButton = article.querySelector(".download");
+    const menu = article.querySelector(".download-menu");
+    downloadButton.onclick = (e) => {
+        e.stopPropagation();
+        const open = menu.hidden;
+        closeDownloadMenus();
+        menu.hidden = !open;
+        downloadButton.setAttribute("aria-expanded", String(open));
+    };
+    for (const item of menu.querySelectorAll("[data-format]")) {
+        item.onclick = async () => {
+            closeDownloadMenus();
+            const format = item.dataset.format;
+            const blob = format === "ico" ? toIco(pixels) : await toBlob(pixels, format === "png16" ? 1 : 32);
+            const suffix = format === "ico" ? ".ico" : format === "png16" ? "-16.png" : ".png";
+            saveFile(blob, `pixie-${record_id}${suffix}`);
+        };
+    }
 
-    // Delete, only on the user's own posts.
+    // Delete, only on the user's own pixies.
     const deleteButton = article.querySelector(".delete");
     if (isMine) {
         deleteButton.hidden = false;
         deleteButton.onclick = () => deletePost(article, record_id);
     }
 
-    // Follow, only on other users' posts. Its text is set once the subscription status is known.
+    // Follow, only on other users' pixies. Its text is set once the subscription status is known.
     const subscribeButton = article.querySelector(".subscribe");
     if (!isMine) {
         subscribeButton.hidden = false;
@@ -881,7 +835,7 @@ async function createArticleContent(p) {
     }
 
     /*
-        A private post has no likes or comments: a like is a public record and a comment an authorized one,
+        A private pixie has no likes or comments: a like is a public record and a comment an authorized one,
         so other users could read them, and every user can list the index names (comment.<record_id>).
     */
     if (isPrivate) {
@@ -892,7 +846,7 @@ async function createArticleContent(p) {
     article.querySelector(".like-count").textContent = p.referenced_count || 0;
     setLikeWord(article);
 
-    // Like button: enabled once we know whether the user has liked this post already.
+    // Like button: enabled once we know whether the user has liked this pixie already.
     const likeButton = article.querySelector(".like");
     likeButton.onclick = () => like(record_id);
     skapi.getRecords({
@@ -908,20 +862,20 @@ async function createArticleContent(p) {
         likeButton.disabled = false;
     });
 
-    // Double tap the photo to like.
+    // Double tap the art to like.
     let lastTap = 0;
-    const photo = article.querySelector(".photo");
+    const art = article.querySelector(".art");
     const burst = () => {
         const b = article.querySelector(".heart-burst");
         b.classList.remove("go");
         void b.offsetWidth;
         b.classList.add("go");
     };
-    photo.addEventListener("dblclick", () => {
+    art.addEventListener("dblclick", () => {
         burst();
         if (!likeId[record_id]) like(record_id);
     });
-    photo.addEventListener("touchend", (e) => {
+    art.addEventListener("touchend", (e) => {
         const now = Date.now();
         if (now - lastTap < 300) {
             e.preventDefault();
@@ -948,13 +902,34 @@ async function createArticleContent(p) {
     moreCommentsButton.onclick = () => loadComments(true);
     loadComments(false);
 
-    // The number of comments is the number of records under the post's comment index.
+    // The number of comments is the number of records under the pixie's comment index.
     skapi.getIndexes({ table: "comments", index: "comment." + record_id }).then((info) => {
         if (info.list.length) article.querySelector(".comment-count").textContent = info.list[0].number_of_records || 0;
     }).catch((err) => console.error(err));
 
     return article;
 }
+
+function closeDownloadMenus() {
+    for (const m of document.querySelectorAll(".download-menu:not([hidden])")) {
+        m.hidden = true;
+        m.closest("article")?.querySelector(".download")?.setAttribute("aria-expanded", "false");
+    }
+}
+
+function saveFile(blob, name) {
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = name;
+    document.body.append(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+}
+
+document.addEventListener("click", (e) => {
+    if (!e.target.closest(".download-menu")) closeDownloadMenus();
+});
 
 function setLikeWord(article) {
     const n = Number(article.querySelector(".like-count").textContent);
@@ -969,12 +944,12 @@ function setFollowButton(button, subscribed) {
 }
 
 async function deletePost(article, record_id) {
-    if (!confirm("Delete this post?")) return;
+    if (!confirm("Delete this pixie?")) return;
     try {
         await skapi.deleteRecords({ record_id });
         article.remove();
         if (!section_posts.querySelector("article")) showEmptyMessage(emptyTextForView());
-        toast("Post deleted");
+        toast("Pixie deleted");
     } catch (err) {
         alert(err.message);
     }
@@ -992,19 +967,19 @@ async function getComments(record_id, fetchMore = false) {
     const items = [];
     for (const c of comments.list) {
         const commenter = await getUserInfo(c.user_id);
-        items.push(createCommentElement(commenter, c.updated, c.data?.comment, c.data?.spirit));
+        items.push(createCommentElement(c.user_id, commenter, c.updated, c.data?.comment));
     }
     return { items, endOfList: comments.endOfList };
 }
 
-function createCommentElement(commenter, updated, text, commenterSpirit) {
+function createCommentElement(user_id, commenter, updated, text) {
     const li = document.createElement("li");
-    li.append(avatarImg(commenterSpirit || "bunny", "xs"));
+    li.append(avatarImg(user_id, "xs"));
     const body = document.createElement("div");
     const p = document.createElement("p");
     const author = document.createElement("strong");
     author.textContent = authorLabel(commenter);
-    if (commenter?.user_id) author.dataset.author = commenter.user_id; // renamed in place if you change your name
+    author.dataset.author = user_id; // renamed in place if you change your name
     p.append(author, text || "");
     body.append(p, timeEl(updated));
     li.append(body);
@@ -1018,15 +993,14 @@ async function addComment(event, record_id, ownerId) {
     if (!text) return;
     disableForm(form, true);
     try {
-        const spiritTag = spirit.startsWith("custom:") ? "custom" : spirit;
         const comment = await skapi.postRecord(
-            { comment: text, spirit: spiritTag },
+            { comment: text },
             { table: { name: "comments", access_group: "authorized" }, index: { name: "comment." + record_id, value: true } }
         );
         const article = form.closest("article");
         const counter = article.querySelector(".comment-count");
         counter.textContent = Number(counter.textContent) + 1;
-        article.querySelector(".comments").prepend(createCommentElement(me, comment.updated, comment.data?.comment, spiritTag));
+        article.querySelector(".comments").prepend(createCommentElement(me.user_id, me, comment.updated, comment.data?.comment));
         form.reset();
         notifyUser(ownerId, { kind: "comment", post: record_id, text: text.slice(0, 100) }, `💬 ${authorLabel(me)} commented: ${text.slice(0, 80)}`);
     } catch (err) {
@@ -1058,7 +1032,7 @@ async function like(record_id) {
             likeId[record_id] = record.record_id;
             likeCount.textContent = Number(likeCount.textContent) + 1;
             const ownerId = article.dataset.owner;
-            if (ownerId) notifyUser(ownerId, { kind: "like", post: record_id }, `❤️ ${authorLabel(me)} liked your memoji`);
+            if (ownerId) notifyUser(ownerId, { kind: "like", post: record_id }, `❤️ ${authorLabel(me)} liked your pixie`);
         }
         likeButton.setAttribute("aria-pressed", String(!!likeId[record_id]));
         setLikeWord(article);
@@ -1097,7 +1071,7 @@ async function subscribe(user_id) {
             const sub = await skapi.subscribe({ user_id, get_feed: true, get_notified: true });
             subscription_list[user_id] = Promise.resolve(sub);
             notifyUser(user_id, { kind: "follow" }, `✨ ${authorLabel(me)} started following you`);
-            toast("Following! Their new posts show up in Following.");
+            toast("Following! Their new pixies show up in Following.");
         }
     } catch (err) {
         alert(err.message);
@@ -1110,11 +1084,11 @@ async function subscribe(user_id) {
 /* ================================================================== views */
 
 function viewTitle(hash) {
-    const headings = { "": "Recent", mostliked: "Most liked", mostcomment: "Most commented", myposts: "My posts", myprivate: "My private posts", feed: "Following" };
+    const headings = { "": "Recent", mostliked: "Most liked", mostcomment: "Most commented", myposts: "My pixies", myprivate: "My private pixies", feed: "Following" };
     if (headings[hash] !== undefined) return headings[hash];
     if (hash.startsWith("tag=")) return "#" + safeDecode(hash.slice(4));
-    if (hash.startsWith("post=")) return "Post";
-    if (hash.startsWith("user=")) return "Posts";
+    if (hash.startsWith("post=")) return "Pixie";
+    if (hash.startsWith("user=")) return "Pixies";
     return "Recent";
 }
 
@@ -1134,13 +1108,13 @@ function markCurrentTab(hash) {
 }
 
 /*
-    The URL hash decides which posts are shown. initialFetch() runs when the page loads and whenever the hash changes.
+    The URL hash decides which pixies are shown. initialFetch() runs when the page loads and whenever the hash changes.
 */
 async function initialFetch() {
     if (!me) return;
     // App shortcuts and notifications open these; they are actions, not views.
     const action = location.hash.slice(1);
-    if (["camera", "activity", "profile", "shared"].includes(action)) {
+    if (["paint", "camera", "activity", "profile", "shared"].includes(action)) {
         history.replaceState(null, "", location.pathname + location.search);
         runAction(action);
     }
@@ -1149,21 +1123,21 @@ async function initialFetch() {
     $("viewExtra").replaceChildren();
     markCurrentTab(hash);
     fetchMoreButton.hidden = false;
-    showEmptyMessage("Loading posts…");
+    showEmptyMessage("Loading pixies…");
     window.scrollTo({ top: 0 });
 
     switch (hash) {
         case "mostliked":
             // Ordered by the reserved index $referenced_count: the number of likes.
-            fetchQuery = { table: { name: "posts", access_group: "authorized" }, index: { name: "$referenced_count", value: 0, condition: ">" } };
+            fetchQuery = { table: { name: POSTS_TABLE, access_group: "authorized" }, index: { name: "$referenced_count", value: 0, condition: ">" } };
             return getPosts(false);
         case "mostcomment":
             return getMostCommentedPost(false);
         case "myposts":
-            fetchQuery = { table: { name: "posts", access_group: "authorized" }, index: { name: "$user_id", value: me.user_id } };
+            fetchQuery = { table: { name: POSTS_TABLE, access_group: "authorized" }, index: { name: "$user_id", value: me.user_id } };
             return getPosts(false);
         case "myprivate":
-            fetchQuery = { table: { name: "posts", access_group: "private" }, index: { name: "$user_id", value: me.user_id } };
+            fetchQuery = { table: { name: POSTS_TABLE, access_group: "private" }, index: { name: "$user_id", value: me.user_id } };
             return getPosts(false);
         case "feed":
             return getFeed(false);
@@ -1171,7 +1145,7 @@ async function initialFetch() {
     if (hash.startsWith("post=")) return getOnePost(safeDecode(hash.slice(5)));
     if (hash.startsWith("user=")) {
         const user_id = safeDecode(hash.slice(5));
-        fetchQuery = { table: { name: "posts", access_group: "authorized" }, index: { name: "$user_id", value: user_id } };
+        fetchQuery = { table: { name: POSTS_TABLE, access_group: "authorized" }, index: { name: "$user_id", value: user_id } };
         getUserInfo(user_id).then((u) => {
             if (location.hash.slice(1) !== hash) return;
             $("postsHeading").textContent = authorLabel(u);
@@ -1187,8 +1161,8 @@ async function initialFetch() {
         });
         return getPosts(false);
     }
-    // All posts, newest first. With "#tag=<tag>" only the posts with that tag.
-    fetchQuery = { table: { name: "posts", access_group: "authorized" } };
+    // All pixies, newest first. With "#tag=<tag>" only the posts with that tag.
+    fetchQuery = { table: { name: POSTS_TABLE, access_group: "authorized" } };
     if (hash.startsWith("tag=")) fetchQuery.tag = safeDecode(hash.slice(4));
     return getPosts(false);
 }
@@ -1211,7 +1185,7 @@ let realtimeReady = null;
 function connectRealtime() {
     realtimeReady = skapi.connectRealtime((rt) => {
         // Skapi also delivers a private message back to its sender: only messages from others are news.
-        if (rt.type === "private" && rt.message?.app === "memoji" && rt.sender && rt.sender !== me?.user_id) {
+        if (rt.type === "private" && rt.message?.app === "pixie" && rt.sender && rt.sender !== me?.user_id) {
             addActivity({ ...rt.message, from: rt.sender, at: Date.now() }, true);
         }
     }).catch((err) => {
@@ -1225,11 +1199,10 @@ async function notifyUser(user_id, payload, text) {
     try {
         if (!realtimeReady) connectRealtime();
         await realtimeReady;
-        const spiritTag = spirit.startsWith("custom:") ? "custom" : spirit;
         await skapi.postRealtime(
-            { app: "memoji", ...payload, from_name: authorLabel(me), from_spirit: spiritTag },
+            { app: "pixie", ...payload, from_name: authorLabel(me) },
             user_id,
-            { title: "memoji", body: text }
+            { title: "pixie", body: text }
         );
     } catch (err) {
         console.warn("Could not notify", err);
@@ -1237,7 +1210,7 @@ async function notifyUser(user_id, payload, text) {
 }
 
 function activityKey() {
-    return "memoji:activity:" + me.user_id;
+    return "pixie:activity:" + me.user_id;
 }
 
 function readActivity() {
@@ -1254,7 +1227,8 @@ function writeActivity(list) {
 
 function activityText(a) {
     const who = a.from_name || "Someone";
-    if (a.kind === "like") return `${who} liked your memoji`;
+    if (a.kind === "like") return `${who} liked your pixie`;
+    if (a.kind === "remix") return `${who} remixed your pixie`;
     if (a.kind === "comment") return `${who} commented: ${a.text || ""}`;
     if (a.kind === "follow") return `${who} started following you`;
     return `${who} sent you something`;
@@ -1268,7 +1242,7 @@ function addActivity(item, live) {
     renderActivity();
     if (live) {
         toast(activityText(item), {
-            img: thumbUrl(item.from_spirit || "bunny"),
+            img: avatarSrc(item.from),
             onClick: () => openActivityTarget(item),
         });
         if (item.post && (item.kind === "like") && location.hash === "#post=" + item.post) {
@@ -1299,7 +1273,7 @@ function renderActivity() {
         const b = document.createElement("button");
         b.type = "button";
         b.className = "activity-item" + (a.unread ? " unread" : "");
-        b.append(avatarImg(a.from_spirit || "bunny", "md"));
+        b.append(avatarImg(a.from, "md"));
         const div = document.createElement("div");
         const p = document.createElement("p");
         p.textContent = activityText(a);
@@ -1355,14 +1329,14 @@ async function updatePushUi() {
     const btn = $("pushButton"), status = $("pushStatus");
     if (isIOS && !isStandalone()) {
         btn.hidden = true;
-        status.textContent = "On iPhone and iPad, notifications work in the installed app: tap Share, then \u201cAdd to Home Screen\u201d, and open memoji from your Home Screen.";
+        status.textContent = "On iPhone and iPad, notifications work in the installed app: tap Share, then \u201cAdd to Home Screen\u201d, and open pixie from your Home Screen.";
         return;
     }
     if (!pushSupported()) {
         btn.hidden = true;
         status.textContent = window.isSecureContext
-            ? "This browser does not support push notifications. You still get live notifications while memoji is open."
-            : "Push notifications need the app on HTTPS. You still get live notifications while memoji is open.";
+            ? "This browser does not support push notifications. You still get live notifications while pixie is open."
+            : "Push notifications need the app on HTTPS. You still get live notifications while pixie is open.";
         return;
     }
     btn.hidden = false;
@@ -1372,7 +1346,7 @@ async function updatePushUi() {
         btn.textContent = "Turn off";
         btn.className = "btn ghost";
     } else {
-        status.textContent = "Get a notification on this device when someone likes, comments or follows you, and when people you follow post.";
+        status.textContent = "Get a notification on this device when someone likes, comments, remixes or follows you, and when people you follow post.";
         btn.textContent = "Turn on notifications";
         btn.className = "btn primary";
     }
@@ -1390,7 +1364,7 @@ async function enablePush() {
         applicationServerKey: urlBase64ToUint8Array(VAPIDPublicKey),
     })).toJSON();
     await skapi.subscribeNotification(subscription.endpoint, subscription.keys);
-    try { localStorage.setItem("memoji:push-user", me.user_id); } catch (err) { /* blocked */ }
+    try { localStorage.setItem("pixie:push-user", me.user_id); } catch (err) { /* blocked */ }
     updatePwaBanner();
 }
 
@@ -1411,7 +1385,7 @@ async function syncPushSubscription(force = false) {
             a fresh one for the account logged in now.
         */
         let owner = null;
-        try { owner = localStorage.getItem("memoji:push-user"); } catch (err) { /* blocked */ }
+        try { owner = localStorage.getItem("pixie:push-user"); } catch (err) { /* blocked */ }
         if (sub && owner !== me.user_id) {
             await sub.unsubscribe().catch(() => { });
             sub = null;
@@ -1424,7 +1398,7 @@ async function syncPushSubscription(force = false) {
         if (!sub) return;
         const json = sub.toJSON();
         await skapi.subscribeNotification(json.endpoint, json.keys);
-        try { localStorage.setItem("memoji:push-user", me.user_id); } catch (err) { /* blocked */ }
+        try { localStorage.setItem("pixie:push-user", me.user_id); } catch (err) { /* blocked */ }
     } catch (err) {
         console.warn("Could not sync the push subscription", err);
     }
@@ -1469,7 +1443,7 @@ window.addEventListener("beforeinstallprompt", (event) => {
 
 window.addEventListener("appinstalled", () => {
     installPrompt = null;
-    toast("memoji is installed 🎉 Find it on your home screen.");
+    toast("pixie is installed 🎉 Find it on your home screen.");
     updatePwaBanner();
     updateInstallUi();
 });
@@ -1486,7 +1460,7 @@ async function installApp() {
         updatePwaBanner();
         updateInstallUi();
     } else if (isIOS && !isStandalone()) {
-        alert("To install memoji: tap the Share button (the square with an arrow), then \u201cAdd to Home Screen\u201d.");
+        alert("To install pixie: tap the Share button (the square with an arrow), then \u201cAdd to Home Screen\u201d.");
     }
 }
 
@@ -1494,15 +1468,15 @@ function updateInstallUi() {
     const btn = $("installButton"), status = $("installStatus");
     if (isStandalone()) {
         btn.hidden = true;
-        status.textContent = "You're using the memoji app. 🎉";
+        status.textContent = "You're using the pixie app. 🎉";
     } else if (canInstall()) {
         btn.hidden = false;
         status.textContent = isIOS
-            ? "Add memoji to your Home Screen: it opens full screen, and on iPhone that is what turns on notifications."
-            : "Install memoji: it opens full screen like an app and keeps notifications coming.";
+            ? "Add pixie to your Home Screen: it opens full screen, and on iPhone that is what turns on notifications."
+            : "Install pixie: it opens full screen like an app and keeps notifications coming.";
     } else {
         btn.hidden = true;
-        status.textContent = "You can install memoji from your browser's menu (\u201cInstall app\u201d or \u201cAdd to Home Screen\u201d).";
+        status.textContent = "You can install pixie from your browser's menu (\u201cInstall app\u201d or \u201cAdd to Home Screen\u201d).";
     }
 }
 
@@ -1512,7 +1486,7 @@ function updateInstallUi() {
 */
 function bannerDismissed(kind) {
     try {
-        return Date.now() - Number(localStorage.getItem("memoji:banner:" + kind) || 0) < 7 * 864e5;
+        return Date.now() - Number(localStorage.getItem("pixie:banner:" + kind) || 0) < 7 * 864e5;
     } catch (err) {
         return false;
     }
@@ -1529,9 +1503,9 @@ function updatePwaBanner() {
     if (!kind) return;
     box.dataset.kind = kind;
     const text = {
-        install: "Get the memoji app: full screen camera, and notifications for likes, comments and new followers.",
-        ios: "Install memoji: tap Share, then \u201cAdd to Home Screen\u201d. On iPhone that's what turns on notifications.",
-        notify: "Turn on notifications to hear about likes, comments, new followers and new posts from people you follow.",
+        install: "Get the pixie app: a full screen studio, and notifications for likes, comments, remixes and new followers.",
+        ios: "Install pixie: tap Share, then \u201cAdd to Home Screen\u201d. On iPhone that's what turns on notifications.",
+        notify: "Turn on notifications to hear about likes, comments, remixes, new followers and new pixies from people you follow.",
     }[kind];
     $("pwaBannerText").textContent = text;
     $("pwaBannerGo").textContent = { install: "Install", ios: "Got it", notify: "Turn on" }[kind];
@@ -1554,14 +1528,14 @@ $("pwaBannerGo").onclick = async () => {
 $("pwaBannerLater").onclick = () => dismissBanner($("pwaBanner").dataset.kind);
 
 function dismissBanner(kind) {
-    try { localStorage.setItem("memoji:banner:" + kind, String(Date.now())); } catch (err) { /* blocked */ }
+    try { localStorage.setItem("pixie:banner:" + kind, String(Date.now())); } catch (err) { /* blocked */ }
     updatePwaBanner();
 }
 
-// A new version of the app is ready: offer it, never reload by itself (it could be mid-photo).
+// A new version of the app is ready: offer it, never reload by itself (it could be mid-drawing).
 function watchForUpdates(reg) {
     if (!reg) return;
-    const offer = (worker) => toast("A new version of memoji is ready. Tap to update ✨", {
+    const offer = (worker) => toast("A new version of pixie is ready. Tap to update ✨", {
         ms: 20000,
         onClick: () => {
             updateRequested = true;
@@ -1587,35 +1561,36 @@ function watchForUpdates(reg) {
 navigator.serviceWorker?.addEventListener?.("message", (event) => {
     const msg = event.data || {};
     if (msg.type === "OPEN" && msg.open) {
-        if (["camera", "activity", "profile", "shared"].includes(msg.open)) runAction(msg.open);
+        if (["paint", "camera", "activity", "profile", "shared"].includes(msg.open)) runAction(msg.open);
         else location.hash = msg.open;
     } else if (msg.type === "PUSH" && msg.data?.type === "record") {
-        toast(msg.data.title || "New post from someone you follow", { onClick: () => (location.hash = "post=" + msg.data.record_id) });
+        toast(msg.data.title || "New pixie from someone you follow", { onClick: () => (location.hash = "post=" + msg.data.record_id) });
     } else if (msg.type === "RESUBSCRIBE") {
         syncPushSubscription(true);
     }
 });
 
 function runAction(action) {
-    if (action === "camera") openCamera();
+    // "camera" is the shortcut of the app pixie grew out of: it opens the studio too.
+    if (action === "paint" || action === "camera") openStudio();
     else if (action === "activity") openActivity();
     else if (action === "profile") openProfile();
-    else if (action === "shared") openSharedPhoto();
+    else if (action === "shared") openSharedPicture();
 }
 
-// A photo shared to memoji from another app (see the share target in sw.js and the manifest).
-async function openSharedPhoto() {
+// A picture shared to pixie from another app (see the share target in sw.js and the manifest) becomes NES pixels.
+async function openSharedPicture() {
     try {
-        const cache = await caches.open("memoji-share");
-        const key = new URL("shared-photo", location.href).href;
+        const cache = await caches.open("pixie-share");
+        const key = new URL("shared-picture", location.href).href;
         const res = await cache.match(key);
-        if (!res) return openCamera();
+        if (!res) return openStudio();
         const blob = await res.blob();
         await cache.delete(key);
-        await openCamera({ photo: blob });
+        await importPicture(blob);
     } catch (err) {
         console.error(err);
-        openCamera();
+        openStudio();
     }
 }
 
@@ -1629,14 +1604,15 @@ function openPanel(id) {
 
 function closePanels() {
     for (const p of document.querySelectorAll(".panel")) p.hidden = true;
-    if ($("cameraSheet").hidden && $("composeSheet").hidden) lockScroll(false);
+    if ($("studioSheet").hidden && $("composeSheet").hidden) lockScroll(false);
 }
 
 async function openProfile() {
     openPanel("profilePanel");
     updateInstallUi();
-    renderSpiritPickers();
     showName();
+    renderAvatarPicker();
+    getAvatar(me.user_id).then(renderAvatarPicker);
     $("guestNote").hidden = !me.anonymous;
     try {
         const u = (await skapi.getUsers({ searchFor: "user_id", value: me.user_id })).list[0];
@@ -1713,71 +1689,44 @@ $("cancelNameButton").onclick = showName;
 
 /* ================================================================== wiring */
 
-$("openCameraButton").onclick = openCamera;
-$("closeCameraButton").onclick = closeCamera;
-$("shutterButton").onclick = takePhoto;
-$("shuffleButton").onclick = () => stage?.reshuffle();
-$("flipButton").onclick = async () => {
-    facing = facing === "user" ? "environment" : "user";
-    if (stage) stage.mirrorPref = null; // each camera starts with its own default: front mirrored, back not
-    if (stage?.mode === "live") {
-        try {
-            await stage.startCamera(facing);
-        } catch (err) {
-            camHint(err.message);
-        }
-    }
-    syncMirrorButton();
+$("openStudioButton").onclick = () => openStudio();
+$("closeStudioButton").onclick = closeStudio;
+$("nextButton").onclick = () => (studioMode === "avatar" ? saveAvatarFromStudio() : openCompose());
+$("drawAvatarButton").onclick = openAvatarStudio;
+for (const b of document.querySelectorAll(".tool[data-tool]")) b.onclick = () => setTool(b.dataset.tool);
+$("mirrorToggle").onclick = () => {
+    editor.mirror = !editor.mirror;
+    setPressed("mirrorToggle", editor.mirror);
+    editor.render();
 };
-// Mirror: the selfie camera shows (and saves) the picture like a mirror; tap to see it as others do.
-function syncMirrorButton() {
-    const on = !!stage?.mirror;
-    const b = $("mirrorButton");
-    b.setAttribute("aria-pressed", String(on));
-    b.classList.toggle("on", on);
+$("gridToggle").onclick = () => {
+    editor.grid = !editor.grid;
+    setPressed("gridToggle", editor.grid);
+    editor.render();
+};
+$("undoButton").onclick = () => editor.undo();
+$("redoButton").onclick = () => editor.redo();
+$("flipButton").onclick = () => editor.flip();
+for (const b of document.querySelectorAll("[data-shift]")) {
+    b.onclick = () => {
+        const [dx, dy] = b.dataset.shift.split(",").map(Number);
+        editor.shift(dx, dy);
+    };
 }
-$("mirrorButton").onclick = () => {
-    if (!stage) return;
-    stage.setMirror(!stage.mirror);
-    syncMirrorButton();
-    toast(stage.mirror ? "Mirror on: like looking in a mirror 🪞" : "Mirror off: as others see you");
-};
-$("lightButton").onclick = () => {
-    const b = $("lightButton");
-    const on = b.getAttribute("aria-pressed") !== "true";
-    b.setAttribute("aria-pressed", String(on));
-    b.classList.toggle("on", on);
-    stage?.setAutoLight(on);
-    toast(on ? "Memoji follow your lighting ☀️" : "Studio lighting");
-};
-$("galleryInput").onchange = (e) => {
-    usePhotoFromGallery(e.target.files[0]);
+$("importInput").onchange = (e) => {
+    importPicture(e.target.files[0]);
     e.target.value = "";
 };
-$("backToCameraButton").onclick = async () => {
-    $("backToCameraButton").hidden = true;
-    $("viewfinder").classList.remove("still");
-    $("shutterButton").setAttribute("aria-label", "Take photo");
-    camHint("Starting camera…");
-    try {
-        await stage.startCamera(facing);
-        camHint("");
-    } catch (err) {
-        camHint(err.message);
-    }
+$("clearButton").onclick = () => {
+    if (!editor || editor.isEmpty()) return;
+    editor.clear();
+    remixOf = null;
+    showRemixNote();
+    studioChanged();
+    toast("Cleared. Undo brings it back.");
 };
 $("composeBackButton").onclick = closeCompose;
-$("postForm").onsubmit = postPhoto;
-for (const id of ["fitScale", "fitY", "fitZ", "fitRY"]) $(id).oninput = onFitInput;
-$("modelInput").onchange = (e) => {
-    const f = e.target.files[0];
-    e.target.value = "";
-    if ($("profilePanel").hidden && $("cameraSheet").hidden) openProfile();
-    else if ($("profilePanel").hidden) $("modelStatus").textContent = "";
-    uploadCustomModel(f).then(() => {
-        if (!$("cameraSheet").hidden) toast($("modelStatus").textContent);
-    });
-};
+$("postForm").onsubmit = postPixie;
 $("activityButton").onclick = openActivity;
 $("topActivityButton").onclick = openActivity;
 $("meButton").onclick = openProfile;
@@ -1805,11 +1754,40 @@ for (const p of document.querySelectorAll(".panel")) {
         if (e.target === p || e.target.closest("[data-close-panel]")) closePanels();
     });
 }
+
+// Keyboard: Escape closes; in the studio, the usual pixel editor shortcuts.
 document.addEventListener("keydown", (e) => {
-    if (e.key !== "Escape") return;
-    if (!$("composeSheet").hidden) closeCompose();
-    else if (!$("cameraSheet").hidden) closeCamera();
-    else closePanels();
+    if (e.key === "Escape") {
+        if (document.querySelector(".download-menu:not([hidden])")) closeDownloadMenus();
+        else if (!$("composeSheet").hidden) closeCompose();
+        else if (!$("studioSheet").hidden) closeStudio();
+        else closePanels();
+        return;
+    }
+    if ($("studioSheet").hidden || !$("composeSheet").hidden || !editor) return;
+    if (e.target.closest?.("input, textarea, select, [contenteditable]")) return;
+    const key = e.key.toLowerCase();
+    if ((e.ctrlKey || e.metaKey) && key === "z") {
+        e.preventDefault();
+        if (e.shiftKey) editor.redo();
+        else editor.undo();
+        return;
+    }
+    if ((e.ctrlKey || e.metaKey) && key === "y") {
+        e.preventDefault();
+        editor.redo();
+        return;
+    }
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    const tools = { b: "pen", p: "pen", e: "eraser", f: "fill", i: "picker" };
+    if (tools[key]) setTool(tools[key]);
+    else if (key === "m") $("mirrorToggle").click();
+    else if (key === "g") $("gridToggle").click();
+    else if (e.shiftKey && e.key.startsWith("Arrow")) {
+        e.preventDefault();
+        const d = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[e.key];
+        editor.shift(...d);
+    }
 });
 window.addEventListener("hashchange", initialFetch);
 // Back online: reload the feed if it could not load.
@@ -1823,21 +1801,12 @@ window.addEventListener("online", () => {
 (async () => {
     me = await userReady;
     if (!me) return; // service.js sends the visitor to the login page.
-    spirit = readSpirit(me);
-    for (const img of document.querySelectorAll("img[data-me-avatar]")) {
-        img.dataset.spirit = spirit;
-        img.src = thumbUrl(spirit);
-    }
+    for (const img of document.querySelectorAll("img[data-me-avatar]")) img.dataset.avatarOf = me.user_id;
+    refreshAvatars(me.user_id);
+    getAvatar(me.user_id).then(() => refreshAvatars(me.user_id));
     initialFetch();
     renderActivity();
     connectRealtime();
-    await loadCustomModelList();
-    if (spirit.startsWith("custom:")) {
-        if (customModels.some((m) => m.id === spirit)) setSpirit(spirit, { save: false });
-        else setSpirit("bunny", { save: false });
-    }
-    // Render the built-in thumbnails in the background for the pickers.
-    for (const a of ANIMALS) thumbUrl(a.id);
     // Installable app: banners, notifications for this account on this device, updates.
     updatePwaBanner();
     syncPushSubscription();

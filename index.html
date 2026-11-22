@@ -4,79 +4,93 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
-    <title>memoji</title>
-    <meta name="description" content="Snap a photo and every face turns into a cute 3D animal memoji that blinks, smiles and follows your gaze. Share it, like, comment, follow and get notified.">
-    <meta name="theme-color" content="#fff8f3">
+    <title>pixie · 16×16 pixel art in NES colors</title>
+    <meta name="description" content="Paint tiny 16×16 pixel art in the colors of the 1983 NES, share it, remix your friends' sprites, like, comment, follow and get notified.">
+    <meta name="theme-color" content="#1c1030">
+    <meta name="color-scheme" content="light">
+    <link rel="canonical" href="https://memoji.skapi.com/">
     <link rel="icon" href="icon.svg" type="image/svg+xml">
-    <!-- Link previews (Open Graph / Twitter). Crawlers need absolute URLs: the app is hosted at https://memoji.skapi.com/ -->
-    <meta property="og:type" content="website">
-    <meta property="og:site_name" content="memoji">
-    <meta property="og:title" content="memoji · every face becomes a cute 3D animal">
-    <meta property="og:description" content="Snap a photo and every face turns into a cute 3D animal memoji that blinks, smiles and follows your gaze. Share it, like, comment, follow and get notified.">
-    <meta property="og:url" content="https://memoji.skapi.com/">
-    <meta property="og:image" content="https://memoji.skapi.com/og-image.png">
-    <meta property="og:image:width" content="1200">
-    <meta property="og:image:height" content="630">
-    <meta property="og:image:alt" content="memoji: a phone showing the live camera turning a person's head into a 3D bunny, next to cute 3D animal heads making expressions">
-    <meta name="twitter:card" content="summary_large_image">
-    <meta name="twitter:title" content="memoji · every face becomes a cute 3D animal">
-    <meta name="twitter:description" content="Snap a photo and every face turns into a cute 3D animal memoji that blinks, smiles and follows your gaze. Share it, like, comment, follow and get notified.">
-    <meta name="twitter:image" content="https://memoji.skapi.com/og-image.png">
-    <link rel="manifest" href="manifest.webmanifest">
     <link rel="icon" href="icons/favicon-48.png" sizes="48x48" type="image/png">
     <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+    <link rel="manifest" href="manifest.webmanifest">
+    <!-- Link previews (Open Graph / Twitter). Crawlers need absolute URLs: the app is hosted at https://memoji.skapi.com/ -->
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="pixie">
+    <meta property="og:title" content="pixie · paint and share 16×16 pixel art in NES colors">
+    <meta property="og:description" content="Paint tiny 16×16 pixel art in the colors of the 1983 NES, share it, remix your friends' sprites, like, comment, follow and get notified.">
+    <meta property="og:url" content="https://memoji.skapi.com/">
+    <meta property="og:image" content="https://memoji.skapi.com/og-image.png">
+    <meta property="og:image:type" content="image/png">
+    <meta property="og:image:width" content="1200">
+    <meta property="og:image:height" content="630">
+    <meta property="og:image:alt" content="pixie: a 16 by 16 pixel editor with the NES color palette, next to a wall of tiny pixel art sprites">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="pixie · paint and share 16×16 pixel art in NES colors">
+    <meta name="twitter:description" content="Paint tiny 16×16 pixel art in the colors of the 1983 NES, share it, remix your friends' sprites, like, comment, follow and get notified.">
+    <meta name="twitter:image" content="https://memoji.skapi.com/og-image.png">
+    <meta name="twitter:image:alt" content="pixie: a 16 by 16 pixel editor with the NES color palette, next to a wall of tiny pixel art sprites">
+    <meta name="application-name" content="pixie">
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-title" content="memoji">
-    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="pixie">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=Nunito:wght@400;600;700;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Pixelify+Sans:wght@400;500;600;700&family=Press+Start+2P&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="app.css">
-    <script src="https://cdn.jsdelivr.net/npm/skapi-js@2.4.2/dist/skapi.js"></script>
-    <script src="service.js"></script>
-    <!--
-        three.js (WebGL) renders the memoji, MediaPipe Tasks Vision (WebAssembly + WebGL) tracks the faces.
-        Both are ES modules from a CDN, pinned to exact versions.
-    -->
-    <script type="importmap">
+    <script type="application/ld+json">
         {
-            "imports": {
-                "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
-                "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/",
-                "@mediapipe/tasks-vision": "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.21/vision_bundle.mjs"
-            }
+            "@context": "https://schema.org",
+            "@type": "WebApplication",
+            "name": "pixie",
+            "url": "https://memoji.skapi.com/",
+            "description": "Paint tiny 16×16 pixel art in the colors of the 1983 NES, share it, remix your friends' sprites, like, comment, follow and get notified.",
+            "applicationCategory": "DesignApplication",
+            "operatingSystem": "Any",
+            "browserRequirements": "Requires JavaScript",
+            "image": "https://memoji.skapi.com/og-image.png",
+            "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
         }
     </script>
+    <script src="https://cdn.jsdelivr.net/npm/skapi-js@2.4.2/dist/skapi.js"></script>
+    <script src="service.js"></script>
 </head>
 
 <body>
-    <!-- Icons -->
-    <svg width="0" height="0" style="position:absolute" aria-hidden="true">
-        <symbol id="i-heart" viewBox="0 0 24 24"><path d="M12 20.5s-7.5-4.4-9.2-9.3C1.6 7.7 3.9 4.5 7.3 4.5c2 0 3.5 1.1 4.7 2.7 1.2-1.6 2.7-2.7 4.7-2.7 3.4 0 5.7 3.2 4.5 6.7-1.7 4.9-9.2 9.3-9.2 9.3z"/></symbol>
-        <symbol id="i-comment" viewBox="0 0 24 24"><path d="M12 3.5c-5 0-9 3.4-9 7.7 0 2.4 1.3 4.6 3.3 6l-.8 3.3 3.8-2c.9.3 1.8.4 2.7.4 5 0 9-3.4 9-7.7s-4-7.7-9-7.7z"/></symbol>
-        <symbol id="i-home" viewBox="0 0 24 24"><path d="M3.5 10.5 12 3.5l8.5 7V20a1 1 0 0 1-1 1h-5v-6h-5v6h-5a1 1 0 0 1-1-1z"/></symbol>
-        <symbol id="i-fire" viewBox="0 0 24 24"><path d="M12 21.5c-4 0-7-2.8-7-6.6 0-3.4 2.4-5.6 4-7.9.5 1.6 1.4 2.6 2.4 3 .1-3.2 1.5-5.8 4-7.5-.3 2.6.8 4.5 2.2 6.3 1.3 1.6 2.4 3.4 2.4 6 0 3.9-3.2 6.7-8 6.7z"/></symbol>
-        <symbol id="i-bell" viewBox="0 0 24 24"><path d="M12 3a6 6 0 0 0-6 6v3.6L4.3 15.5c-.4.7.1 1.5.9 1.5h13.6c.8 0 1.3-.8.9-1.5L18 12.6V9a6 6 0 0 0-6-6zm-2.5 15.5a2.5 2.5 0 0 0 5 0z"/></symbol>
-        <symbol id="i-user" viewBox="0 0 24 24"><path d="M12 12a4.5 4.5 0 1 0 0-9 4.5 4.5 0 0 0 0 9zm0 1.8c-4.4 0-8 2.5-8 5.7 0 .8.6 1.5 1.5 1.5h13c.8 0 1.5-.7 1.5-1.5 0-3.2-3.6-5.7-8-5.7z"/></symbol>
-        <symbol id="i-camera" viewBox="0 0 24 24"><path d="M9 4.5 7.6 6.5H5A2.5 2.5 0 0 0 2.5 9v8.5A2.5 2.5 0 0 0 5 20h14a2.5 2.5 0 0 0 2.5-2.5V9A2.5 2.5 0 0 0 19 6.5h-2.6L15 4.5zM12 17a4.2 4.2 0 1 1 0-8.4 4.2 4.2 0 0 1 0 8.4z"/></symbol>
-        <symbol id="i-close" viewBox="0 0 24 24"><path d="M6.4 5 12 10.6 17.6 5 19 6.4 13.4 12l5.6 5.6-1.4 1.4-5.6-5.6L6.4 19 5 17.6l5.6-5.6L5 6.4z"/></symbol>
-        <symbol id="i-flip" viewBox="0 0 24 24"><path d="M7 7h9.2l-2-2L15.6 3.6 20 8l-4.4 4.4-1.4-1.4 2-2H7a3 3 0 0 0-3 3v1H2v-1a5 5 0 0 1 5-5zm10 10H7.8l2 2-1.4 1.4L4 16l4.4-4.4 1.4 1.4-2 2H17a3 3 0 0 0 3-3v-1h2v1a5 5 0 0 1-5 5z"/></symbol>
-        <symbol id="i-sun" viewBox="0 0 24 24"><path d="M12 7a5 5 0 1 0 0 10 5 5 0 0 0 0-10zM11 1h2v3h-2zm0 19h2v3h-2zM1 11h3v2H1zm19 0h3v2h-3zM4.2 5.6l1.4-1.4 2.1 2.1-1.4 1.4zm12.1 12.1 1.4-1.4 2.1 2.1-1.4 1.4zM4.2 18.4l2.1-2.1 1.4 1.4-2.1 2.1zM16.3 6.3l2.1-2.1 1.4 1.4-2.1 2.1z"/></symbol>
-        <symbol id="i-dice" viewBox="0 0 24 24"><path d="M6 3h12a3 3 0 0 1 3 3v12a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3V6a3 3 0 0 1 3-3zm2 3.5a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3zm8 0a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3zm-4 4a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3zm-4 4a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3zm8 0a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3z"/></symbol>
-        <symbol id="i-image" viewBox="0 0 24 24"><path d="M5 3.5h14A2.5 2.5 0 0 1 21.5 6v12a2.5 2.5 0 0 1-2.5 2.5H5A2.5 2.5 0 0 1 2.5 18V6A2.5 2.5 0 0 1 5 3.5zm3.5 3a2 2 0 1 0 0 4 2 2 0 0 0 0-4zM4.5 17.5h15l-4.8-6.4-3.6 4.6-2.5-2.9z"/></symbol>
-        <symbol id="i-back" viewBox="0 0 24 24"><path d="M15.4 4 17 5.6 10.6 12l6.4 6.4-1.6 1.6-8-8z"/></symbol>
-        <symbol id="i-more" viewBox="0 0 24 24"><path d="M5 10a2 2 0 1 0 0 4 2 2 0 0 0 0-4zm7 0a2 2 0 1 0 0 4 2 2 0 0 0 0-4zm7 0a2 2 0 1 0 0 4 2 2 0 0 0 0-4z"/></symbol>
-        <symbol id="i-lock" viewBox="0 0 24 24"><path d="M12 2.5a5 5 0 0 0-5 5V10H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8a2 2 0 0 0-2-2h-1V7.5a5 5 0 0 0-5-5zm-3 5a3 3 0 0 1 6 0V10H9z"/></symbol>
-        <symbol id="i-plus" viewBox="0 0 24 24"><path d="M11 4h2v7h7v2h-7v7h-2v-7H4v-2h7z"/></symbol>
-        <symbol id="i-mirror" viewBox="0 0 24 24"><path d="M11 2h2v20h-2zM9 6 2 18h7zm6 0v12h7zm1.8 3.9 2.6 6.1h-2.6z"/></symbol>
+    <!-- Pixel icons: every icon is a 10 x 10 pixel drawing. -->
+    <svg width="0" height="0" style="position:absolute" aria-hidden="true" shape-rendering="crispEdges">
+        <symbol id="i-heart" viewBox="0 0 10 10"><path d="M1 0h2v1h-2zM7 0h2v1h-2zM0 1h4v1h-4zM6 1h4v1h-4zM0 2h10v1h-10zM0 3h10v1h-10zM0 4h10v1h-10zM1 5h8v1h-8zM2 6h6v1h-6zM3 7h4v1h-4zM4 8h2v1h-2z"/></symbol>
+        <symbol id="i-comment" viewBox="0 0 10 10"><path d="M1 0h8v1h-8zM0 1h10v1h-10zM0 2h2v1h-2zM4 2h2v1h-2zM8 2h2v1h-2zM0 3h10v1h-10zM0 4h10v1h-10zM1 5h8v1h-8zM2 6h2v1h-2zM1 7h2v1h-2zM0 8h2v1h-2z"/></symbol>
+        <symbol id="i-home" viewBox="0 0 10 10"><path d="M4 0h2v1h-2zM3 1h4v1h-4zM2 2h6v1h-6zM1 3h8v1h-8zM0 4h10v1h-10zM1 5h8v1h-8zM1 6h3v1h-3zM6 6h3v1h-3zM1 7h3v1h-3zM6 7h3v1h-3zM1 8h3v1h-3zM6 8h3v1h-3z"/></symbol>
+        <symbol id="i-star" viewBox="0 0 10 10"><path d="M4 0h2v1h-2zM4 1h2v1h-2zM3 2h4v1h-4zM0 3h10v1h-10zM1 4h8v1h-8zM2 5h6v1h-6zM2 6h6v1h-6zM1 7h3v1h-3zM6 7h3v1h-3zM1 8h2v1h-2zM7 8h2v1h-2z"/></symbol>
+        <symbol id="i-bell" viewBox="0 0 10 10"><path d="M4 0h2v1h-2zM3 1h4v1h-4zM2 2h6v1h-6zM2 3h6v1h-6zM2 4h6v1h-6zM1 5h8v1h-8zM0 6h10v1h-10zM3 8h4v1h-4z"/></symbol>
+        <symbol id="i-user" viewBox="0 0 10 10"><path d="M3 0h4v1h-4zM2 1h6v1h-6zM2 2h6v1h-6zM2 3h6v1h-6zM3 4h4v1h-4zM1 6h8v1h-8zM0 7h10v1h-10zM0 8h10v1h-10zM0 9h10v1h-10z"/></symbol>
+        <symbol id="i-brush" viewBox="0 0 10 10"><path d="M7 0h3v1h-3zM6 1h4v1h-4zM5 2h4v1h-4zM4 3h4v1h-4zM3 4h4v1h-4zM2 5h2v1h-2zM5 5h2v1h-2zM1 6h4v1h-4zM1 7h3v1h-3zM0 8h3v1h-3zM0 9h2v1h-2z"/></symbol>
+        <symbol id="i-close" viewBox="0 0 10 10"><path d="M0 0h2v1h-2zM8 0h2v1h-2zM0 1h3v1h-3zM7 1h3v1h-3zM1 2h3v1h-3zM6 2h3v1h-3zM2 3h6v1h-6zM3 4h4v1h-4zM3 5h4v1h-4zM2 6h6v1h-6zM1 7h3v1h-3zM6 7h3v1h-3zM0 8h3v1h-3zM7 8h3v1h-3zM0 9h2v1h-2zM8 9h2v1h-2z"/></symbol>
+        <symbol id="i-back" viewBox="0 0 10 10"><path d="M5 0h3v1h-3zM4 1h3v1h-3zM3 2h3v1h-3zM2 3h3v1h-3zM1 4h3v1h-3zM1 5h3v1h-3zM2 6h3v1h-3zM3 7h3v1h-3zM4 8h3v1h-3zM5 9h3v1h-3z"/></symbol>
+        <symbol id="i-more" viewBox="0 0 10 10"><path d="M0 4h2v1h-2zM4 4h2v1h-2zM8 4h2v1h-2zM0 5h2v1h-2zM4 5h2v1h-2zM8 5h2v1h-2z"/></symbol>
+        <symbol id="i-lock" viewBox="0 0 10 10"><path d="M3 0h4v1h-4zM2 1h2v1h-2zM6 1h2v1h-2zM2 2h2v1h-2zM6 2h2v1h-2zM2 3h2v1h-2zM6 3h2v1h-2zM1 4h8v1h-8zM1 5h8v1h-8zM1 6h3v1h-3zM6 6h3v1h-3zM1 7h3v1h-3zM6 7h3v1h-3zM1 8h8v1h-8zM1 9h8v1h-8z"/></symbol>
+        <symbol id="i-plus" viewBox="0 0 10 10"><path d="M4 0h2v1h-2zM4 1h2v1h-2zM4 2h2v1h-2zM4 3h2v1h-2zM0 4h10v1h-10zM0 5h10v1h-10zM4 6h2v1h-2zM4 7h2v1h-2zM4 8h2v1h-2zM4 9h2v1h-2z"/></symbol>
+        <symbol id="i-pencil" viewBox="0 0 10 10"><path d="M7 0h2v1h-2zM6 1h4v1h-4zM5 2h4v1h-4zM4 3h4v1h-4zM3 4h4v1h-4zM2 5h4v1h-4zM1 6h4v1h-4zM1 7h3v1h-3zM0 8h2v1h-2z"/></symbol>
+        <symbol id="i-eraser" viewBox="0 0 10 10"><path d="M5 0h4v1h-4zM4 1h6v1h-6zM3 2h7v1h-7zM2 3h1v1h-1zM4 3h6v1h-6zM1 4h1v1h-1zM5 4h4v1h-4zM0 5h1v1h-1zM6 5h2v1h-2zM0 6h1v1h-1zM5 6h1v1h-1zM1 7h1v1h-1zM4 7h1v1h-1zM2 8h2v1h-2z"/></symbol>
+        <symbol id="i-fill" viewBox="0 0 10 10"><path d="M4 0h2v1h-2zM4 1h2v1h-2zM3 2h4v1h-4zM2 3h6v1h-6zM1 4h8v1h-8zM0 5h10v1h-10zM0 6h10v1h-10zM0 7h10v1h-10zM1 8h8v1h-8zM2 9h6v1h-6z"/></symbol>
+        <symbol id="i-picker" viewBox="0 0 10 10"><path d="M7 0h3v1h-3zM6 1h4v1h-4zM5 2h5v1h-5zM4 3h4v1h-4zM3 4h1v1h-1zM5 4h2v1h-2zM2 5h1v1h-1zM5 5h1v1h-1zM1 6h1v1h-1zM4 6h1v1h-1zM1 7h1v1h-1zM3 7h1v1h-1zM0 8h2v1h-2zM0 9h1v1h-1z"/></symbol>
+        <symbol id="i-mirror" viewBox="0 0 10 10"><path d="M4 0h2v1h-2zM0 1h1v1h-1zM4 1h2v1h-2zM9 1h1v1h-1zM0 2h2v1h-2zM4 2h2v1h-2zM8 2h2v1h-2zM0 3h3v1h-3zM4 3h2v1h-2zM7 3h3v1h-3zM0 4h4v1h-4zM6 4h4v1h-4zM0 5h4v1h-4zM6 5h4v1h-4zM0 6h3v1h-3zM4 6h2v1h-2zM7 6h3v1h-3zM0 7h2v1h-2zM4 7h2v1h-2zM8 7h2v1h-2zM0 8h1v1h-1zM4 8h2v1h-2zM9 8h1v1h-1zM4 9h2v1h-2z"/></symbol>
+        <symbol id="i-undo" viewBox="0 0 10 10"><path d="M3 0h1v1h-1zM2 1h2v1h-2zM1 2h7v1h-7zM0 3h9v1h-9zM1 4h2v1h-2zM7 4h2v1h-2zM2 5h1v1h-1zM8 5h2v1h-2zM8 6h2v1h-2zM8 7h2v1h-2zM7 8h2v1h-2zM3 9h5v1h-5z"/></symbol>
+        <symbol id="i-grid" viewBox="0 0 10 10"><path d="M0 0h10v1h-10zM0 1h1v1h-1zM3 1h1v1h-1zM6 1h1v1h-1zM9 1h1v1h-1zM0 2h1v1h-1zM3 2h1v1h-1zM6 2h1v1h-1zM9 2h1v1h-1zM0 3h10v1h-10zM0 4h1v1h-1zM3 4h1v1h-1zM6 4h1v1h-1zM9 4h1v1h-1zM0 5h1v1h-1zM3 5h1v1h-1zM6 5h1v1h-1zM9 5h1v1h-1zM0 6h10v1h-10zM0 7h1v1h-1zM3 7h1v1h-1zM6 7h1v1h-1zM9 7h1v1h-1zM0 8h1v1h-1zM3 8h1v1h-1zM6 8h1v1h-1zM9 8h1v1h-1zM0 9h10v1h-10z"/></symbol>
+        <symbol id="i-trash" viewBox="0 0 10 10"><path d="M3 0h4v1h-4zM0 1h10v1h-10zM1 3h8v1h-8zM1 4h1v1h-1zM3 4h1v1h-1zM6 4h1v1h-1zM8 4h1v1h-1zM1 5h1v1h-1zM3 5h1v1h-1zM6 5h1v1h-1zM8 5h1v1h-1zM1 6h1v1h-1zM3 6h1v1h-1zM6 6h1v1h-1zM8 6h1v1h-1zM1 7h1v1h-1zM3 7h1v1h-1zM6 7h1v1h-1zM8 7h1v1h-1zM1 8h8v1h-8z"/></symbol>
+        <symbol id="i-image" viewBox="0 0 10 10"><path d="M0 0h10v1h-10zM0 1h1v1h-1zM9 1h1v1h-1zM0 2h1v1h-1zM2 2h2v1h-2zM9 2h1v1h-1zM0 3h1v1h-1zM2 3h2v1h-2zM6 3h1v1h-1zM9 3h1v1h-1zM0 4h1v1h-1zM5 4h3v1h-3zM9 4h1v1h-1zM0 5h1v1h-1zM3 5h7v1h-7zM0 6h1v1h-1zM2 6h8v1h-8zM0 7h10v1h-10z"/></symbol>
+        <symbol id="i-download" viewBox="0 0 10 10"><path d="M4 0h2v1h-2zM4 1h2v1h-2zM4 2h2v1h-2zM1 3h8v1h-8zM2 4h6v1h-6zM3 5h4v1h-4zM4 6h2v1h-2zM0 8h10v1h-10zM0 9h10v1h-10z"/></symbol>
+        <symbol id="i-remix" viewBox="0 0 10 10"><path d="M7 0h1v1h-1zM7 1h2v1h-2zM0 2h10v1h-10zM7 3h2v1h-2zM7 4h1v1h-1zM2 5h1v1h-1zM1 6h2v1h-2zM0 7h10v1h-10zM1 8h2v1h-2zM2 9h1v1h-1z"/></symbol>
+        <symbol id="i-arrow" viewBox="0 0 10 10"><path d="M4 0h1v1h-1zM4 1h2v1h-2zM4 2h3v1h-3zM0 3h9v1h-9zM0 4h10v1h-10zM0 5h9v1h-9zM4 6h3v1h-3zM4 7h2v1h-2zM4 8h1v1h-1z"/></symbol>
+        <symbol id="i-flip" viewBox="0 0 10 10"><path d="M4 0h2v1h-2zM0 1h1v1h-1zM4 1h2v1h-2zM9 1h1v1h-1zM0 2h2v1h-2zM4 2h2v1h-2zM8 2h2v1h-2zM0 3h3v1h-3zM4 3h2v1h-2zM7 3h3v1h-3zM0 4h4v1h-4zM6 4h4v1h-4zM0 5h4v1h-4zM6 5h4v1h-4zM0 6h3v1h-3zM4 6h2v1h-2zM7 6h3v1h-3zM0 7h2v1h-2zM4 7h2v1h-2zM8 7h2v1h-2zM0 8h1v1h-1zM4 8h2v1h-2zM9 8h1v1h-1zM4 9h2v1h-2z"/></symbol>
+        <symbol id="i-sparkle" viewBox="0 0 10 10"><path d="M4 0h1v1h-1zM4 1h1v1h-1zM3 2h3v1h-3zM0 3h9v1h-9zM3 4h3v1h-3zM4 5h1v1h-1zM8 5h1v1h-1zM4 6h1v1h-1zM7 6h3v1h-3zM8 7h1v1h-1z"/></symbol>
+        <symbol id="i-check" viewBox="0 0 10 10"><path d="M9 0h1v1h-1zM8 1h2v1h-2zM7 2h2v1h-2zM0 3h1v1h-1zM6 3h2v1h-2zM0 4h2v1h-2zM5 4h2v1h-2zM1 5h2v1h-2zM4 5h2v1h-2zM2 6h3v1h-3zM3 7h1v1h-1z"/></symbol>
         <symbol id="i-github" viewBox="0 0 24 24"><path d="M12 .5a11.5 11.5 0 0 0-3.64 22.41c.58.1.79-.25.79-.56v-2c-3.2.7-3.88-1.37-3.88-1.37-.53-1.33-1.28-1.69-1.28-1.69-1.05-.71.08-.7.08-.7 1.16.08 1.77 1.19 1.77 1.19 1.03 1.77 2.7 1.26 3.36.96.1-.75.4-1.26.73-1.55-2.56-.29-5.25-1.28-5.25-5.69 0-1.26.45-2.28 1.19-3.09-.12-.29-.52-1.46.11-3.05 0 0 .97-.31 3.17 1.18a11 11 0 0 1 5.77 0c2.2-1.49 3.17-1.18 3.17-1.18.63 1.59.23 2.76.11 3.05.74.81 1.19 1.83 1.19 3.09 0 4.42-2.7 5.39-5.27 5.68.41.36.78 1.06.78 2.14v3.17c0 .31.21.67.8.56A11.5 11.5 0 0 0 12 .5z"/></symbol>
-        <symbol id="i-pencil" viewBox="0 0 24 24"><path d="M15.6 3.6a2 2 0 0 1 2.8 0l2 2a2 2 0 0 1 0 2.8L9.2 19.6 4 21l1.4-5.2zM14.2 7 6.8 14.4l-.8 2.8 2.8-.8L16.2 9z"/></symbol>
-        <symbol id="i-cube" viewBox="0 0 24 24"><path d="m12 2 9 5v10l-9 5-9-5V7zm0 2.3L5.6 7.8 12 11.3l6.4-3.5zM5 9.5v6.3l6 3.3v-6.3zm14 0-6 3.3v6.3l6-3.3z"/></symbol>
     </svg>
 
     <header class="topbar">
-        <a class="logo" href="index.html" aria-label="memoji home"><span class="logo-paw" aria-hidden="true">🐾</span>memoji</a>
+        <a class="logo" href="index.html" aria-label="pixie home"><img src="icon.svg" alt="" width="32" height="32">pixie</a>
         <div class="topbar-actions">
             <button type="button" class="icon-btn" id="topActivityButton" aria-label="Activity">
                 <svg><use href="#i-bell"/></svg><span class="badge" hidden></span>
@@ -87,20 +101,20 @@
         </div>
     </header>
 
-    <!-- The links change the URL hash, and the hash decides which posts are fetched (initialFetch() in app.js). -->
-    <nav class="tabs" aria-label="Post filters">
+    <!-- The links change the URL hash, and the hash decides which pixies are fetched (initialFetch() in app.js). -->
+    <nav class="tabs" aria-label="Pixie filters">
         <a href="#" data-hash="">Recent</a>
         <a href="#mostliked" data-hash="mostliked">Most liked</a>
         <a href="#mostcomment" data-hash="mostcomment">Most commented</a>
         <a href="#feed" data-hash="feed">Following</a>
-        <a href="#myposts" data-hash="myposts">My posts</a>
+        <a href="#myposts" data-hash="myposts">My pixies</a>
         <a href="#myprivate" data-hash="myprivate">Private</a>
     </nav>
 
     <main class="feed-wrap">
         <!-- Install the app / turn on notifications (app.js: updatePwaBanner()). -->
-        <div class="pwa-banner" id="pwaBanner" hidden role="region" aria-label="memoji app">
-            <img src="icons/icon-192.png" alt="" width="44" height="44">
+        <div class="pwa-banner" id="pwaBanner" hidden role="region" aria-label="pixie app">
+            <img src="icon.svg" alt="" width="48" height="48">
             <p id="pwaBannerText"></p>
             <div class="pwa-banner-actions">
                 <button type="button" class="btn small primary" id="pwaBannerGo">Install</button>
@@ -112,80 +126,99 @@
             <div id="viewExtra"></div>
         </div>
         <div id="section_posts" aria-live="polite">
-            <p class="empty">Loading posts…</p>
+            <p class="empty">Loading pixies…</p>
         </div>
-        <button type="button" class="btn ghost wide" id="fetchMoreButton" disabled>Load more</button>
+        <button type="button" class="btn wide" id="fetchMoreButton" disabled>Load more</button>
     </main>
 
     <nav class="bottombar" aria-label="Main">
         <a href="#" data-hash="" aria-label="Home"><svg><use href="#i-home"/></svg></a>
-        <a href="#mostliked" data-hash="mostliked" aria-label="Most liked"><svg><use href="#i-fire"/></svg></a>
-        <button type="button" class="shoot" id="openCameraButton" aria-label="Take a memoji photo"><svg><use href="#i-camera"/></svg></button>
+        <a href="#mostliked" data-hash="mostliked" aria-label="Most liked"><svg><use href="#i-star"/></svg></a>
+        <button type="button" class="paint" id="openStudioButton" aria-label="Paint a pixie"><svg><use href="#i-brush"/></svg></button>
         <button type="button" id="activityButton" aria-label="Activity"><svg><use href="#i-bell"/></svg><span class="badge" hidden></span></button>
         <button type="button" id="meButton" aria-label="Your profile"><img class="avatar xs" alt="" data-me-avatar></button>
     </nav>
 
-    <!-- ===================================================== camera -->
-    <section class="sheet camera" id="cameraSheet" hidden aria-label="Memoji camera">
-        <div class="cam-top">
-            <button type="button" class="cam-btn" id="closeCameraButton" aria-label="Close camera"><svg><use href="#i-close"/></svg></button>
-            <div class="cam-title" id="camStatus" role="status">memoji cam</div>
-            <div class="cam-top-right">
-                <button type="button" class="cam-btn on" id="lightButton" aria-pressed="true" title="Match the memoji to your lighting"><svg><use href="#i-sun"/></svg></button>
-                <button type="button" class="cam-btn on" id="mirrorButton" aria-pressed="true" title="Mirror: show the selfie camera like a mirror"><svg><use href="#i-mirror"/></svg></button>
-                <button type="button" class="cam-btn" id="flipButton" aria-label="Switch camera"><svg><use href="#i-flip"/></svg></button>
+    <!-- ===================================================== studio: the 16 x 16 pixel editor (js/editor.js) -->
+    <section class="sheet studio" id="studioSheet" hidden aria-label="Pixel studio">
+        <header class="sheet-head">
+            <button type="button" class="icon-btn" id="closeStudioButton" aria-label="Close the studio"><svg><use href="#i-close"/></svg></button>
+            <h2><span id="studioTitle">Studio</span> <small>16×16</small></h2>
+            <button type="button" class="btn small primary" id="nextButton">Next</button>
+        </header>
+        <div class="studio-body">
+            <p class="remix-note" id="studioRemixNote" hidden></p>
+            <p class="remix-note" id="studioAvatarNote" hidden><svg><use href="#i-user"/></svg> Drawing your avatar. Your other drawing is kept aside.</p>
+            <div class="canvas-frame">
+                <canvas id="pixelCanvas" width="320" height="320" aria-label="Drawing area: 16 by 16 pixels"></canvas>
             </div>
-        </div>
 
-        <div class="viewfinder-wrap">
-            <div class="viewfinder" id="viewfinder">
-                <div class="cam-hint" id="camHint">Starting camera…</div>
+            <div class="toolbar" role="toolbar" aria-label="Tools">
+                <div class="tool-group" role="radiogroup" aria-label="Tool">
+                    <button type="button" class="tool" data-tool="pen" role="radio" aria-checked="true" title="Pencil (B)"><svg><use href="#i-pencil"/></svg><span>Pen</span></button>
+                    <button type="button" class="tool" data-tool="eraser" role="radio" aria-checked="false" title="Eraser (E) · right click erases too"><svg><use href="#i-eraser"/></svg><span>Erase</span></button>
+                    <button type="button" class="tool" data-tool="fill" role="radio" aria-checked="false" title="Fill (F)"><svg><use href="#i-fill"/></svg><span>Fill</span></button>
+                    <button type="button" class="tool" data-tool="picker" role="radio" aria-checked="false" title="Pick a color from the art (I)"><svg><use href="#i-picker"/></svg><span>Pick</span></button>
+                </div>
+                <div class="tool-group">
+                    <button type="button" class="tool toggle" id="mirrorToggle" aria-pressed="false" title="Mirror drawing (M)"><svg><use href="#i-mirror"/></svg><span>Mirror</span></button>
+                    <button type="button" class="tool toggle" id="gridToggle" aria-pressed="true" title="Show the grid (G)"><svg><use href="#i-grid"/></svg><span>Grid</span></button>
+                </div>
+                <div class="tool-group">
+                    <button type="button" class="tool" id="undoButton" title="Undo (Ctrl+Z)" disabled><svg><use href="#i-undo"/></svg><span>Undo</span></button>
+                    <button type="button" class="tool" id="redoButton" title="Redo (Ctrl+Shift+Z)" disabled><svg class="flip-x"><use href="#i-undo"/></svg><span>Redo</span></button>
+                </div>
             </div>
-        </div>
 
-        <div class="fit-panel" id="fitPanel" hidden>
-            <p><strong>Fit your model</strong> <small>(saved to your model)</small></p>
-            <label>Size <input type="range" id="fitScale" min="0.4" max="2.2" step="0.01"></label>
-            <label>Up / down <input type="range" id="fitY" min="-1" max="1" step="0.01"></label>
-            <label>Forward / back <input type="range" id="fitZ" min="-1" max="1" step="0.01"></label>
-            <label>Turn <input type="range" id="fitRY" min="-3.1416" max="3.1416" step="0.01"></label>
-        </div>
+            <div class="palette-box">
+                <div class="current">
+                    <span class="swatch-big" id="currentSwatch"></span>
+                    <span><strong id="currentName">NES $0D</strong><small>your color</small></span>
+                    <span class="tiny-preview" title="Actual size">
+                        <img id="tinyPreview" alt="" width="16" height="16">
+                        <img id="tinyPreview2" alt="" width="32" height="32">
+                    </span>
+                </div>
+                <!-- The NES palette: 4 brightness rows x 14 hues (app.js fills it from nes.js). -->
+                <div class="palette" id="palette" role="radiogroup" aria-label="NES colors"></div>
+            </div>
 
-        <div class="spirit-strip" id="spiritStrip" role="radiogroup" aria-label="Your spirit animal"></div>
-
-        <div class="cam-controls">
-            <label class="cam-side" title="Turn a photo from your gallery into memoji">
-                <input type="file" accept="image/*" id="galleryInput" hidden>
-                <span class="cam-round"><svg><use href="#i-image"/></svg></span>
-                <span>Gallery</span>
-            </label>
-            <button type="button" class="shutter" id="shutterButton" aria-label="Take photo" disabled><span></span></button>
-            <button type="button" class="cam-side" id="shuffleButton" title="Give everyone else a new random animal">
-                <span class="cam-round"><svg><use href="#i-dice"/></svg></span>
-                <span>Shuffle</span>
-            </button>
+            <div class="adjust" aria-label="More">
+                <button type="button" class="btn small" id="flipButton" title="Flip left and right"><svg><use href="#i-flip"/></svg> Flip</button>
+                <span class="nudge" role="group" aria-label="Move the art one pixel">
+                    <button type="button" class="btn small icon-only" data-shift="-1,0" aria-label="Move left"><svg class="rot-180"><use href="#i-arrow"/></svg></button>
+                    <button type="button" class="btn small icon-only" data-shift="0,-1" aria-label="Move up"><svg class="rot-270"><use href="#i-arrow"/></svg></button>
+                    <button type="button" class="btn small icon-only" data-shift="0,1" aria-label="Move down"><svg class="rot-90"><use href="#i-arrow"/></svg></button>
+                    <button type="button" class="btn small icon-only" data-shift="1,0" aria-label="Move right"><svg><use href="#i-arrow"/></svg></button>
+                </span>
+                <label class="btn small" title="Turn a picture into 16×16 NES pixels">
+                    <input type="file" accept="image/*" id="importInput" hidden>
+                    <svg><use href="#i-image"/></svg> Picture
+                </label>
+                <button type="button" class="btn small danger" id="clearButton"><svg><use href="#i-trash"/></svg> Clear</button>
+            </div>
+            <p class="hint studio-hint">Drag to draw. Right click (or the eraser) erases. Your drawing is kept on this device until you share it.</p>
         </div>
-        <button type="button" class="back-to-cam" id="backToCameraButton" hidden>Back to the live camera</button>
     </section>
 
     <!-- ===================================================== compose -->
-    <section class="sheet compose" id="composeSheet" hidden aria-label="New post">
+    <section class="sheet compose" id="composeSheet" hidden aria-label="New pixie">
         <header class="sheet-head">
-            <button type="button" class="icon-btn" id="composeBackButton" aria-label="Retake"><svg><use href="#i-back"/></svg></button>
-            <h2>New memoji</h2>
+            <button type="button" class="icon-btn" id="composeBackButton" aria-label="Back to the studio"><svg><use href="#i-back"/></svg></button>
+            <h2>New pixie</h2>
             <span class="spacer"></span>
         </header>
         <div class="compose-body">
-            <img id="img_preview" alt="Your memoji photo">
-            <p class="compose-animals" id="composeAnimals"></p>
+            <div class="art-frame"><img id="img_preview" alt="Your pixie"></div>
+            <p class="remix-note" id="composeRemixNote" hidden></p>
             <form id="postForm">
                 <label>
-                    Caption
-                    <textarea name="description" maxlength="500" placeholder="Say something cute…" required></textarea>
+                    Caption <small>(optional)</small>
+                    <textarea name="description" maxlength="300" placeholder="What did you make?"></textarea>
                 </label>
                 <label>
                     Tags <small>(optional, comma separated)</small>
-                    <input type="text" id="input_tags" placeholder="weekend, friends">
+                    <input type="text" id="input_tags" placeholder="cat, food, space">
                 </label>
                 <label class="switch">
                     <!-- No name attribute: read by its id, not saved into the record's data. -->
@@ -207,11 +240,11 @@
                 <button type="button" class="icon-btn" data-close-panel aria-label="Close"><svg><use href="#i-close"/></svg></button>
             </header>
             <div class="push-box" id="pushBox">
-                <p id="pushStatus">Get a notification on this device when someone likes, comments or follows you, and when people you follow post.</p>
+                <p id="pushStatus">Get a notification on this device when someone likes, comments, remixes or follows you, and when people you follow post.</p>
                 <button type="button" class="btn primary" id="pushButton">Turn on notifications</button>
             </div>
             <ul class="activity-list" id="activityList"></ul>
-            <p class="empty" id="activityEmpty">No activity yet. Likes, comments and new followers show up here.</p>
+            <p class="empty" id="activityEmpty">No activity yet. Likes, comments, remixes and new followers show up here.</p>
         </div>
     </section>
 
@@ -230,7 +263,7 @@
                         <span class="profile-name" id="profileName"></span>
                         <button type="button" class="icon-btn small" id="editNameButton" aria-label="Change your name" title="Change your name"><svg><use href="#i-pencil"/></svg></button>
                     </p>
-                    <!-- skapi.updateProfile({ name }) changes the name everyone sees on your posts and comments. -->
+                    <!-- skapi.updateProfile({ name }) changes the name everyone sees on your pixies and comments. -->
                     <form class="name-form" id="nameForm" hidden>
                         <input type="text" name="name" id="nameInput" maxlength="40" required autocomplete="nickname" aria-label="Your name">
                         <button type="submit" class="btn small primary" id="saveNameButton">Save</button>
@@ -238,49 +271,26 @@
                     </form>
                     <p class="hint name-hint" id="nameHint" role="status"></p>
                     <p class="profile-stats"><span><strong id="statFollowers">–</strong> followers</span> <span><strong id="statFollowing">–</strong> following</span></p>
-                    <p class="profile-links"><a href="#myposts" data-close-panel>My posts</a> · <a href="#myprivate" data-close-panel>Private</a> · <a href="#feed" data-close-panel>Following</a></p>
+                    <p class="profile-links"><a href="#myposts" data-close-panel>My pixies</a> · <a href="#myprivate" data-close-panel>Private</a> · <a href="#feed" data-close-panel>Following</a></p>
                 </div>
             </div>
-            <p class="guest-note" id="guestNote" hidden>You are a guest: this account and its posts are deleted 30 minutes after you leave. <a href="signup.html">Sign up</a> to keep them.</p>
+            <p class="guest-note" id="guestNote" hidden>You are a guest: this account and its pixies are deleted 30 minutes after you leave. <a href="signup.html">Sign up</a> to keep them.</p>
 
-            <h3>Your spirit animal</h3>
-            <p class="hint">The face closest to the camera becomes your spirit animal. Everyone else gets a random one.</p>
-            <div class="spirit-grid" id="spiritGrid" role="radiogroup" aria-label="Your spirit animal"></div>
+            <h3>Your avatar</h3>
+            <p class="hint">Pick one, draw your own, or keep the random critter made from your account. Everyone sees it.</p>
+            <!-- A record in the table "avatars" (app.js: setMyAvatar()). -->
+            <div class="avatar-picker" id="avatarPicker" role="radiogroup" aria-label="Your avatar"></div>
+            <button type="button" class="btn small" id="drawAvatarButton"><svg><use href="#i-pencil"/></svg> Draw your own</button>
 
-            <h3>Your own 3D models</h3>
-            <p class="hint">
-                Upload a <strong>.glb</strong>, <strong>.gltf</strong> (with embedded data) or <strong>.vrm</strong>, up to 40 MB.
-                A head model replaces your head; a full avatar (VRM / VRoid, or any rig with neck and head bones)
-                is cut at the neck so only its head shows. It follows your head, and your face too when it has
-                VRM expressions or morph targets named like ARKit blendshapes
-                (<code>eyeBlinkLeft</code>, <code>jawOpen</code>, <code>mouthSmileLeft</code>…).
-                Only you can see your models.
-            </p>
-            <p class="hint">
-                Free models to try:
-                <a href="https://hub.vroid.com/en/models" target="_blank" rel="noopener">VRoid Hub</a> (anime avatars, .vrm; download the ones whose author allows it) ·
-                <a href="https://vroid.com/en/studio" target="_blank" rel="noopener">VRoid Studio</a> (make your own, free) ·
-                <a href="https://sketchfab.com/search?features=downloadable&amp;q=arkit+blendshapes&amp;type=models" target="_blank" rel="noopener">Sketchfab: ARKit faces</a>
-                and <a href="https://sketchfab.com/search?features=downloadable&amp;q=animal+head&amp;type=models" target="_blank" rel="noopener">animal heads</a> (download as glTF / .glb) ·
-                <a href="https://github.com/mrdoob/three.js/raw/r170/examples/models/gltf/facecap.glb" target="_blank" rel="noopener">facecap.glb</a> (a face with all 52 ARKit shapes) ·
-                <a href="https://github.com/pixiv/three-vrm/raw/dev/packages/three-vrm/examples/models/VRM1_Constraint_Twist_Sample.vrm" target="_blank" rel="noopener">a sample VRM avatar</a>.
-                Check each model's license.
-            </p>
-            <label class="btn ghost upload-btn">
-                <input type="file" id="modelInput" accept=".glb,.gltf,.vrm,model/gltf-binary,model/gltf+json" hidden>
-                <svg><use href="#i-cube"/></svg> Upload a 3D model
-            </label>
-            <p class="hint" id="modelStatus" role="status"></p>
-
-            <h3>The memoji app</h3>
+            <h3>The pixie app</h3>
             <p class="hint" id="installStatus"></p>
-            <button type="button" class="btn primary" id="installButton" hidden>Install memoji</button>
+            <button type="button" class="btn primary" id="installButton" hidden>Install pixie</button>
 
             <div class="profile-foot">
-                <button type="button" class="btn ghost" id="logoutButton">Log out</button>
+                <button type="button" class="btn" id="logoutButton">Log out</button>
             </div>
             <p class="source-link">
-                <a href="https://github.com/broadwayinc/memoji" target="_blank" rel="noopener"><svg><use href="#i-github"/></svg> memoji is open source: view the code on GitHub</a>
+                <a href="https://github.com/broadwayinc/memoji" target="_blank" rel="noopener"><svg><use href="#i-github"/></svg> pixie is open source: view the code on GitHub</a>
             </p>
         </div>
     </section>

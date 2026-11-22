@@ -1,5 +1,5 @@
 /*
-    service.js is loaded by every page of memoji.
+    service.js is loaded by every page of pixie.
     It creates the `skapi` object the pages use and takes care of two things every page needs:
     the project id, and sending visitors to the login page when a page needs a logged in user.
     (Same structure as service.js of the Skapi HTML template.)
@@ -8,7 +8,7 @@
 /*
     Project ID
 
-    memoji runs on the Skapi project below. Opening a page with ?pid=<Project ID> uses another project
+    pixie runs on the Skapi project below. Opening a page with ?pid=<Project ID> uses another project
     instead; the id is then kept in sessionStorage so the other pages use it too.
 */
 const DEFAULT_PROJECT_ID = "5g3TffXBwAE3eFEcbG-7Zd6TgdLUaFxseKMT1qveY";
@@ -63,7 +63,7 @@ document.addEventListener("DOMContentLoaded", () => {
     - Android Chrome: the viewport tag's interactive-widget=resizes-content makes the page itself shrink
       above the keyboard.
     - Everywhere (iPhone Safari included): when a text field is focused, the keyboard's height is measured
-      from the visual viewport, and the field's scroll area (the page, the New post sheet, a panel) is
+      from the visual viewport, and the field's scroll area (the page, the New pixie sheet, a panel) is
       scrolled just enough to show the field above the keyboard. While typing, <html> gets the class
       "keyboard-open" (the floating bottom bar hides) and the CSS variable --kb holds the keyboard height,
       so sheets can add room at the bottom to scroll the field up.
@@ -138,7 +138,7 @@ document.addEventListener("DOMContentLoaded", () => {
 })();
 
 /*
-    memoji is an installable app (a PWA): the service worker (sw.js) caches it for a fast, offline-able
+    pixie is an installable app (a PWA): the service worker (sw.js) caches it for a fast, offline-able
     start and shows push notifications. It is registered from every page.
 */
 const swReady = "serviceWorker" in navigator

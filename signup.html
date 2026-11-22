@@ -4,34 +4,39 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
-    <title>Sign up · memoji</title>
-    <meta name="description" content="Snap a photo and every face turns into a cute 3D animal memoji that blinks, smiles and follows your gaze. Share it, like, comment, follow and get notified.">
-    <meta name="theme-color" content="#fff8f3">
+    <title>Sign up · pixie</title>
+    <meta name="description" content="Paint tiny 16×16 pixel art in the colors of the 1983 NES, share it, remix your friends' sprites, like, comment, follow and get notified.">
+    <meta name="theme-color" content="#1c1030">
+    <meta name="color-scheme" content="light">
+    <link rel="canonical" href="https://memoji.skapi.com/signup.html">
     <link rel="icon" href="icon.svg" type="image/svg+xml">
-    <!-- Link previews (Open Graph / Twitter). Crawlers need absolute URLs: the app is hosted at https://memoji.skapi.com/ -->
-    <meta property="og:type" content="website">
-    <meta property="og:site_name" content="memoji">
-    <meta property="og:title" content="Join memoji · every face becomes a cute 3D animal">
-    <meta property="og:description" content="Snap a photo and every face turns into a cute 3D animal memoji that blinks, smiles and follows your gaze. Share it, like, comment, follow and get notified.">
-    <meta property="og:url" content="https://memoji.skapi.com/signup.html">
-    <meta property="og:image" content="https://memoji.skapi.com/og-image.png">
-    <meta property="og:image:width" content="1200">
-    <meta property="og:image:height" content="630">
-    <meta property="og:image:alt" content="memoji: a phone showing the live camera turning a person's head into a 3D bunny, next to cute 3D animal heads making expressions">
-    <meta name="twitter:card" content="summary_large_image">
-    <meta name="twitter:title" content="Join memoji · every face becomes a cute 3D animal">
-    <meta name="twitter:description" content="Snap a photo and every face turns into a cute 3D animal memoji that blinks, smiles and follows your gaze. Share it, like, comment, follow and get notified.">
-    <meta name="twitter:image" content="https://memoji.skapi.com/og-image.png">
-    <link rel="manifest" href="manifest.webmanifest">
     <link rel="icon" href="icons/favicon-48.png" sizes="48x48" type="image/png">
     <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+    <link rel="manifest" href="manifest.webmanifest">
+    <!-- Link previews (Open Graph / Twitter). Crawlers need absolute URLs: the app is hosted at https://memoji.skapi.com/ -->
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="pixie">
+    <meta property="og:title" content="Join pixie · paint and share 16×16 pixel art in NES colors">
+    <meta property="og:description" content="Paint tiny 16×16 pixel art in the colors of the 1983 NES, share it, remix your friends' sprites, like, comment, follow and get notified.">
+    <meta property="og:url" content="https://memoji.skapi.com/signup.html">
+    <meta property="og:image" content="https://memoji.skapi.com/og-image.png">
+    <meta property="og:image:type" content="image/png">
+    <meta property="og:image:width" content="1200">
+    <meta property="og:image:height" content="630">
+    <meta property="og:image:alt" content="pixie: a 16 by 16 pixel editor with the NES color palette, next to a wall of tiny pixel art sprites">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="Join pixie · paint and share 16×16 pixel art in NES colors">
+    <meta name="twitter:description" content="Paint tiny 16×16 pixel art in the colors of the 1983 NES, share it, remix your friends' sprites, like, comment, follow and get notified.">
+    <meta name="twitter:image" content="https://memoji.skapi.com/og-image.png">
+    <meta name="twitter:image:alt" content="pixie: a 16 by 16 pixel editor with the NES color palette, next to a wall of tiny pixel art sprites">
+    <meta name="application-name" content="pixie">
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-title" content="memoji">
-    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="pixie">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=Nunito:wght@400;600;700;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Pixelify+Sans:wght@400;500;600;700&family=Press+Start+2P&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="app.css">
     <script src="https://cdn.jsdelivr.net/npm/skapi-js@2.4.2/dist/skapi.js"></script>
     <script src="service.js"></script>
@@ -40,9 +45,11 @@
 <body class="auth-body">
     <main class="auth">
         <div class="auth-card">
-            <a class="logo" href="index.html"><span class="logo-paw" aria-hidden="true">🐾</span>memoji</a>
+            <a class="logo" href="index.html"><img src="icon.svg" alt="" width="32" height="32">pixie</a>
             <h1>Create your account</h1>
-            <p>Pick a spirit animal, take photos, follow your friends.</p>
+            <div class="auth-hero" aria-hidden="true"><img src="icon.svg" alt=""></div>
+            <div class="palette-strip" aria-hidden="true"></div>
+            <p>Paint 16×16 sprites, remix your friends' art, follow and get notified.</p>
             <!--
                 skapi.signup() creates the account. With signup_confirmation Skapi emails a confirmation link
                 that brings the user to the login page.

@@ -1,29 +1,29 @@
 /*
-    sw.js: memoji's service worker. It makes memoji an installable app that starts fast and works
+    sw.js: pixie's service worker. It makes pixie an installable app that starts fast and works
     without a connection as far as it can, and it shows push notifications.
 
     Caching
     - The app shell (pages, styles, scripts, icons) is cached on install. It is fetched from the network
       first, so online you always get one consistent, newest version; offline (or when the network
       takes longer than a few seconds) the cached copy is used, and offline.html for pages never seen.
-    - The libraries from CDNs (three.js, MediaPipe and its face model, fonts, skapi-js) have the version
-      in their address, so they are cached the first time and served from the cache afterwards.
-    - Skapi itself (login, posts, likes, files) is never cached: it always goes to the network.
-    A new version waits until the app says so (the "Update ready" toast), so it never reloads mid-photo.
+    - The libraries from CDNs (skapi-js, the pixel fonts) have the version in their address, so they are
+      cached the first time and served from the cache afterwards.
+    - Skapi itself (login, pixies, likes, comments) is never cached: it always goes to the network.
+    A new version waits until the app says so (the "Update ready" toast), so it never reloads mid-drawing.
 
     Notifications
     - From skapi.postRealtime() with a notification (likes, comments, follows): { title, body }.
     - From records posted with notify_subscribers (someone you follow posted):
       { title, body, type: "record" | "reference", record_id, table, user_id, reference? }.
-    Clicking one focuses memoji (or opens it) at the post.
+    Clicking one focuses pixie (or opens it) at the pixie.
 
-    Share target: photos shared to memoji from other apps arrive as a POST to ./share-target; the photo is
-    kept in a cache and the app opens it in the memoji camera (index.html#shared).
+    Share target: pictures shared to pixie from other apps arrive as a POST to ./share-target; the picture is
+    kept in a cache and the app turns it into 16 x 16 NES pixels in the studio (index.html#shared).
 */
-const VERSION = "memoji-v15";
+const VERSION = "pixie-v2";
 const SHELL_CACHE = VERSION + "-shell";
-const CDN_CACHE = "memoji-cdn-v1";
-const SHARE_CACHE = "memoji-share";
+const CDN_CACHE = "pixie-cdn-v1";
+const SHARE_CACHE = "pixie-share";
 
 const SHELL = [
     "./",
@@ -39,10 +39,9 @@ const SHELL = [
     "manifest.webmanifest",
     "icon.svg",
     "js/app.js",
-    "js/memoji-engine.js",
-    "js/animals.js",
-    "js/heads-sdf.js",
-    "js/heads-worker.js",
+    "js/nes.js",
+    "js/editor.js",
+    "js/avatars.js",
     "icons/icon-192.png",
     "icons/icon-512.png",
     "icons/maskable-192.png",
@@ -53,7 +52,7 @@ const SHELL = [
 ];
 
 // CDN files worth keeping: they are versioned, so a cached copy never goes stale.
-const CDN_HOSTS = ["cdn.jsdelivr.net", "storage.googleapis.com", "fonts.googleapis.com", "fonts.gstatic.com"];
+const CDN_HOSTS = ["cdn.jsdelivr.net", "fonts.googleapis.com", "fonts.gstatic.com"];
 
 const scoped = (path) => new URL(path, self.registration.scope).href;
 
@@ -66,7 +65,8 @@ self.addEventListener("install", (event) => {
 self.addEventListener("activate", (event) => {
     event.waitUntil((async () => {
         for (const key of await caches.keys()) {
-            if (key.startsWith("memoji-") && key !== SHELL_CACHE && key !== CDN_CACHE && key !== SHARE_CACHE) await caches.delete(key);
+            // Older versions, and every cache of memoji (the app pixie grew out of, on the same address).
+            if ((key.startsWith("pixie-") || key.startsWith("memoji-")) && key !== SHELL_CACHE && key !== CDN_CACHE && key !== SHARE_CACHE) await caches.delete(key);
         }
         if (self.registration.navigationPreload) await self.registration.navigationPreload.enable().catch(() => { });
         await self.clients.claim();
@@ -83,7 +83,7 @@ self.addEventListener("fetch", (event) => {
     const req = event.request;
     const url = new URL(req.url);
 
-    // Photos shared from other apps.
+    // Pictures shared from other apps.
     if (req.method === "POST" && url.href.startsWith(scoped("share-target"))) {
         event.respondWith(receiveShare(req));
         return;
@@ -103,7 +103,7 @@ self.addEventListener("fetch", (event) => {
         event.respondWith(cacheFirst(req));
         return;
     }
-    // Everything else (Skapi's API, post photos, ...) goes straight to the network.
+    // Everything else (Skapi's API, ...) goes straight to the network.
 });
 
 async function networkFirstPage(event) {
@@ -151,7 +151,7 @@ async function cacheFirst(req) {
     const cached = await cache.match(req);
     if (cached) return cached;
     const res = await fetch(req);
-    // Opaque (no-cors) answers are kept too: fonts and the model are fetched that way by some browsers.
+    // Opaque (no-cors) answers are kept too: fonts are fetched that way by some browsers.
     if (res && (res.ok || res.type === "opaque")) cache.put(req, res.clone());
     return res;
 }
@@ -159,10 +159,10 @@ async function cacheFirst(req) {
 async function receiveShare(req) {
     try {
         const form = await req.formData();
-        const file = form.get("photo");
+        const file = form.get("picture");
         if (file && typeof file !== "string") {
             const cache = await caches.open(SHARE_CACHE);
-            await cache.put(scoped("shared-photo"), new Response(file, { headers: { "content-type": file.type || "image/jpeg" } }));
+            await cache.put(scoped("shared-picture"), new Response(file, { headers: { "content-type": file.type || "image/png" } }));
         }
     } catch (err) {
         // Nothing usable was shared; open the app anyway.
@@ -184,19 +184,19 @@ self.addEventListener("push", (event) => {
     event.waitUntil((async () => {
         // A dot on the app icon until the app is opened (where it shows the real count).
         await self.navigator.setAppBadge?.().catch(() => { });
-        // If memoji is open and in front, it shows the news itself (a toast); tell it to refresh.
+        // If pixie is open and in front, it shows the news itself (a toast); tell it to refresh.
         const windows = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
         for (const c of windows) c.postMessage({ type: "PUSH", data });
-        await self.registration.showNotification(data.title || "memoji", {
-            body: data.body || "Something new on memoji",
+        await self.registration.showNotification(data.title || "pixie", {
+            body: data.body || "Something new on pixie",
             icon: scoped("icons/icon-192.png"),
             badge: scoped("icons/badge-96.png"),
-            tag: post ? "post-" + post : "memoji-activity",
+            tag: post ? "post-" + post : "pixie-activity",
             renotify: true,
             timestamp: Date.now(),
             vibrate: [60, 40, 60],
             data: { open },
-            actions: [{ action: "open", title: post ? "See the post" : "Open memoji" }],
+            actions: [{ action: "open", title: post ? "See the pixie" : "Open pixie" }],
         });
     })());
 });
