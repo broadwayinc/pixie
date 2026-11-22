@@ -491,6 +491,19 @@ async function postPixie(event) {
         remix from someone who liked the pixie, and every remix would count as a like).
     */
     if (remix) params.index = { name: "remix_root", value: data.remix_root };
+    /*
+        A public remix also references the family's remix hub (see getHub()): the hub's owner, the maker of the
+        first pixie, can then remove remixes and set the order of the frames. Never the pixie itself:
+        references to a pixie are its likes.
+    */
+    if (remix && !isPrivate) {
+        const root = await getRecordOrNull(data.remix_root);
+        const hub = root ? await ensureHub(root).catch((err) => (console.warn(err), null)) : null;
+        if (hub) {
+            params.reference = hub.record_id;
+            data.remix_hub = hub.record_id;
+        }
+    }
     if (!isPrivate) {
         params.notification = {
             title: `${authorLabel(me)} posted a new pixie 👾`,
@@ -500,6 +513,10 @@ async function postPixie(event) {
 
     try {
         const rec = await skapi.postRecord(data, params);
+        // Every public pixie can be remixed: its maker makes its hub right away.
+        if (!remix && !isPrivate && rec?.record_id) {
+            ensureHub({ ...rec, user_id: me.user_id, table: { name: POSTS_TABLE, access_group: "authorized" } }).catch((err) => console.warn(err));
+        }
         if (remix && !isPrivate && rec?.record_id) {
             notifyUser(remix.user_id, { kind: "remix", post: rec.record_id }, `🎨 ${authorLabel(me)} remixed your pixie`);
         }
@@ -926,6 +943,58 @@ async function createArticleContent(p) {
     return article;
 }
 
+/* ================================================================== remix hubs */
+
+/*
+    Every public pixie that can start a remix family has a "remix hub": a record in the table "remix_hubs",
+    made by the pixie's maker, with data { root, order } and the index root = <the pixie's record id>.
+    - Public remixes reference the hub. The hub has can_remove_referencing_records, so its owner can remove
+      any remix of the family, and referencing_index_restrictions, so only records of this family (index
+      remix_root = root) can reference it.
+    - order is the order of the frames, set by the hub's owner in the Frames editor.
+    A hub is looked up by its index and must belong to the maker of the first pixie, so nobody else's record
+    can act as a family's hub.
+    The hub is not deleted with its pixie: deleting it would delete every remix that references it.
+*/
+const HUB_TABLE = { name: "remix_hubs", access_group: "authorized" };
+const hubCache = {}; // root record id -> Promise of the hub record, or null
+
+function getRecordOrNull(record_id) {
+    return skapi.getRecords({ record_id }).then((r) => r.list[0] || null).catch(() => null);
+}
+
+function getHub(rootId, ownerId) {
+    if (!hubCache[rootId]) {
+        const request = skapi.getRecords({ table: HUB_TABLE, index: { name: "root", value: rootId } }, { limit: 10 })
+            .then((res) => res.list.find((h) => h.user_id === ownerId && h.data?.root === rootId) || null)
+            .catch((err) => {
+                console.warn("Remix hub not loaded", err);
+                if (hubCache[rootId] === request) delete hubCache[rootId];
+                return null;
+            });
+        request.at = Date.now();
+        hubCache[rootId] = request;
+    }
+    return hubCache[rootId];
+}
+
+// The hub of a pixie; its maker makes one if there is none yet (pixies shared before hubs existed).
+async function ensureHub(root) {
+    if (!root?.record_id) return null;
+    const found = await getHub(root.record_id, root.user_id);
+    if (found || root.user_id !== me.user_id || root.table?.access_group === "private") return found;
+    const hub = await skapi.postRecord({ root: root.record_id, order: [] }, {
+        table: HUB_TABLE,
+        index: { name: "root", value: root.record_id },
+        source: {
+            can_remove_referencing_records: true,
+            referencing_index_restrictions: [{ name: "remix_root", value: root.record_id, condition: "=" }],
+        },
+    });
+    hubCache[root.record_id] = Object.assign(Promise.resolve(hub), { at: Date.now() });
+    return hub;
+}
+
 /* ================================================================== remix animations */
 
 /*
@@ -971,15 +1040,151 @@ async function loadFamily(article) {
             return [];
         }),
     ]);
+    // The remixes that reference the family's hub, and the order its owner set. The hub is read again for
+    // every family load (its owner may have changed the order); pixies of one family loading together share it.
+    if (Date.now() - (hubCache[rootId]?.at || 0) > 3000) delete hubCache[rootId];
+    const hub = root ? await ensureHub(root).catch(() => null) : null;
+    const referencing = hub
+        ? await skapi.getRecords(
+            { table: { name: POSTS_TABLE, access_group: "authorized" }, reference: hub.record_id },
+            { limit: 60 }
+        ).then((r) => r.list).catch(() => [])
+        : [];
     const family = new Map();
-    for (const r of [root, ...remixes, p]) {
+    for (const r of [root, ...remixes, ...referencing, p]) {
         if (r?.record_id && r.table?.name === POSTS_TABLE && r.table?.access_group !== "private" && isValid(r.data?.pixels)) {
             family.set(r.record_id, r);
         }
     }
+    resetFrames(article);
     if (family.size < 2 || !article.isConnected) return;
-    const frames = [...family.values()].sort((a, b) => (a.uploaded || a.updated) - (b.uploaded || b.updated));
+    // The owner's order first; frames it doesn't list yet (newer remixes) follow, oldest first.
+    const order = Array.isArray(hub?.data?.order) ? hub.data.order : [];
+    const place = (r) => (order.includes(r.record_id) ? order.indexOf(r.record_id) : Infinity);
+    const time = (r) => r.uploaded || r.updated || 0;
+    const frames = [...family.values()].sort((a, b) => (place(a) - place(b)) || (time(a) - time(b)));
+    article._familyInfo = { rootId, root, hub, frames };
     setupFrames(article, p.record_id, frames);
+    // The maker of the first pixie can arrange its frames.
+    if (hub && hub.user_id === me.user_id && p.record_id === rootId) {
+        const edit = document.createElement("button");
+        edit.type = "button";
+        edit.className = "btn small frames-edit";
+        edit.title = "Arrange or remove the frames of this remix family";
+        edit.append(svgIcon("grid"), "Frames");
+        edit.onclick = () => openFramesEditor(article);
+        article.querySelector(".actions .remix").before(edit);
+    }
+}
+
+// Remove the animation of a pixie (before it is loaded again).
+function resetFrames(article) {
+    if (article._anim) {
+        clearInterval(article._anim.timer);
+        article._anim.badge.remove();
+        article._anim = null;
+    }
+    article.querySelector(".frames-edit")?.remove();
+    article.querySelector(".remix-count").hidden = true;
+}
+
+function reloadFamily(rootId) {
+    for (const a of document.querySelectorAll("article.post")) {
+        if (a._family?.rootId === rootId) loadFamily(a);
+    }
+}
+
+/* ------------------------------------------------------------------ the Frames editor */
+
+let framesEdit = null; // { rootId, hub, list }
+
+function openFramesEditor(article) {
+    const info = article._familyInfo;
+    framesEdit = { rootId: info.rootId, hub: info.hub, list: info.frames.slice() };
+    renderFramesEditor();
+    openPanel("framesPanel");
+}
+
+function renderFramesEditor() {
+    const { list, rootId } = framesEdit;
+    $("frameList").replaceChildren(...list.map((f, n) => {
+        const li = document.createElement("li");
+        li.className = "frame-row";
+        const img = document.createElement("img");
+        img.src = toDataURL(f.data.pixels);
+        img.alt = "";
+        const text = document.createElement("div");
+        const title = document.createElement("strong");
+        title.textContent = `Frame ${n + 1}`;
+        const by = document.createElement("small");
+        by.textContent = f.record_id === rootId ? "your original" : "remix";
+        getUserInfo(f.user_id).then((u) => {
+            by.textContent = (f.record_id === rootId ? "your original" : "remix") + " · " + authorLabel(u);
+        });
+        text.append(title, by);
+        const tools = document.createElement("span");
+        tools.className = "frame-tools";
+        const btn = (icon, label, fn, disabled = false, cls = "") => {
+            const b = document.createElement("button");
+            b.type = "button";
+            b.className = "btn small icon-only " + cls;
+            b.setAttribute("aria-label", label);
+            b.title = label;
+            const svg = svgIcon(icon === "up" || icon === "down" ? "arrow" : icon);
+            if (icon === "up") svg.classList.add("rot-270");
+            if (icon === "down") svg.classList.add("rot-90");
+            b.append(svg);
+            b.disabled = disabled;
+            b.onclick = fn;
+            return b;
+        };
+        tools.append(
+            btn("up", "Move up", () => moveFrame(n, -1), n === 0),
+            btn("down", "Move down", () => moveFrame(n, 1), n === list.length - 1),
+        );
+        if (f.record_id !== rootId) tools.append(btn("trash", "Remove this remix", () => removeFrame(f), false, "danger"));
+        li.append(img, text, tools);
+        return li;
+    }));
+}
+
+function moveFrame(n, d) {
+    const list = framesEdit.list;
+    [list[n], list[n + d]] = [list[n + d], list[n]];
+    renderFramesEditor();
+}
+
+// The hub's owner removes someone's remix: it is deleted (can_remove_referencing_records).
+async function removeFrame(f) {
+    const who = authorLabel(await getUserInfo(f.user_id));
+    if (!confirm(`Remove this remix by ${who}? It is deleted for everyone.`)) return;
+    try {
+        await skapi.deleteRecords({ record_id: f.record_id });
+        framesEdit.list = framesEdit.list.filter((x) => x !== f);
+        document.getElementById("post-" + f.record_id)?.remove();
+        renderFramesEditor();
+        toast("Remix removed");
+    } catch (err) {
+        alert(err.message);
+    }
+}
+
+async function saveFrameOrder() {
+    const { hub, rootId, list } = framesEdit;
+    const button = $("saveFramesButton");
+    button.disabled = true;
+    try {
+        const order = list.map((f) => f.record_id);
+        const updated = await skapi.postRecord({ ...hub.data, root: rootId, order }, { record_id: hub.record_id });
+        hubCache[rootId] = Object.assign(Promise.resolve({ ...hub, ...updated, data: { ...hub.data, root: rootId, order } }), { at: Date.now() });
+        closePanels();
+        toast("Frame order saved");
+        reloadFamily(rootId);
+    } catch (err) {
+        alert(err.message);
+    } finally {
+        button.disabled = false;
+    }
 }
 
 function setupFrames(article, ownId, frames) {
@@ -1833,6 +2038,7 @@ $("openStudioButton").onclick = () => openStudio();
 $("closeStudioButton").onclick = closeStudio;
 $("nextButton").onclick = () => (studioMode === "avatar" ? saveAvatarFromStudio() : openCompose());
 $("drawAvatarButton").onclick = openAvatarStudio;
+$("saveFramesButton").onclick = saveFrameOrder;
 for (const b of document.querySelectorAll(".tool[data-tool]")) b.onclick = () => setTool(b.dataset.tool);
 $("mirrorToggle").onclick = () => {
     editor.mirror = !editor.mirror;

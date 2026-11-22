@@ -250,6 +250,20 @@
         </div>
     </section>
 
+    <!-- ===================================================== frames: the order of a remix family (app.js: openFramesEditor()) -->
+    <section class="panel" id="framesPanel" hidden aria-label="Frames">
+        <div class="panel-card">
+            <header class="sheet-head">
+                <h2>Frames</h2>
+                <span class="spacer"></span>
+                <button type="button" class="icon-btn" data-close-panel aria-label="Close"><svg><use href="#i-close"/></svg></button>
+            </header>
+            <p class="hint">Your pixie and its remixes play in this order. Move frames up or down, or remove a remix from your family (it is deleted for everyone).</p>
+            <ol class="frame-list" id="frameList"></ol>
+            <button type="button" class="btn primary wide" id="saveFramesButton">Save order</button>
+        </div>
+    </section>
+
     <!-- ===================================================== profile -->
     <section class="panel" id="profilePanel" hidden aria-label="Your profile">
         <div class="panel-card">

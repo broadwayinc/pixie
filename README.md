@@ -27,7 +27,8 @@ It grew out of the photo gallery page of the Skapi HTML template (`templates-ska
 - **Share** a pixie with a caption and tags, publicly or **privately** (only you can see it).
 - **Like** (double-tap the art), **comment**, **follow** people, **download** a pixie as a PNG (512×512 or 16×16) or a 16×16 **.ico** icon.
 - **Remix** a pixie: it opens in your studio; when you share it, it links back to the original and its maker is notified.
-- **Remix animations**: a pixie that has remixes, or is one, plays its whole remix family **frame by frame**, in the order the remixes were shared, with the frame number and who drew it (tap to pause). Remix your own pixie to draw the next frame of an animation.
+- **Remix animations**: a pixie that has remixes, or is one, plays its whole remix family **frame by frame**, with the frame number and who drew it (tap to pause). Remix your own pixie to draw the next frame of an animation.
+- **Frames**: the maker of the first pixie can **reorder** the frames of its family and **remove** anyone's remix from it.
 - **Avatars**: pick one of 12 pre-drawn avatars, **draw your own** in the studio, or keep the little 8×8 critter made from your account.
 - **Activity**: likes, comments, remixes and new followers arrive live while the app is open, and as **push notifications** when it isn't. You also get a push when someone you follow shares a pixie.
 - Accounts: sign up with email confirmation, log in, **change your name**, reset a forgotten password, recover a removed account, or just **try it as a guest**.
@@ -139,13 +140,14 @@ Every backend feature is a Skapi call from the browser. Here is what pixie uses,
 
 ### Database: `js/app.js`
 
-pixie keeps everything in four tables:
+pixie keeps everything in five tables:
 
 | Table | Access group | Holds |
 | --- | --- | --- |
 | `pixies` | `authorized` (any logged-in user), or `private` | `data: { pixels, description, remix_of?, remix_root? }` and tags. `remix_of` is `{ record_id, user_id, name }` of the pixie it started from; `remix_root` is the first pixie of the remix family, also set as the index `remix_root`. |
 | `likes` | `public` | Empty records that **reference** a pixie. |
 | `comments` | `authorized` | `data: { comment }` with the index `comment.<pixie id>`. |
+| `remix_hubs` | `authorized` | One per public pixie, made by its maker: `data: { root, order }`, index `root = <pixie id>`. Public remixes **reference** it; `order` is the frame order. |
 | `avatars` | `authorized` | `data: { pixels }`: your avatar, one record per user. Updated with `postRecord(data, { record_id })`; deleted to go back to the random critter. |
 
 It demonstrates these features:
@@ -179,7 +181,20 @@ It demonstrates these features:
 - **Custom indexes and `getIndexes()`.** Comments are indexed `comment.<pixie id>`:
   - `getIndexes({ table: "comments", index: "comment." + id })` gives the comment count;
   - `getIndexes({ table: "comments", index: "comment.", order: { by: "total_bool" } })` lists pixies by number of comments, which is *Most commented*.
-- **A custom index as a link between records.** A remix is posted with `index: { name: "remix_root", value: <first pixie's id> }`, so `getRecords({ table, index: { name: "remix_root", value } })` returns the whole remix family for the animation in one call. It is not a Skapi `reference`: references are the likes, and `prevent_multiple_referencing` would refuse a remix from someone who liked the pixie (and every remix would count as a like).
+- **References with owner moderation: the remix hub.** A pixie's references are its likes, so remixes reference a separate record instead: the pixie's **remix hub** (table `remix_hubs`), made by the pixie's maker when they share it:
+
+  ```js
+  await skapi.postRecord({ root: pixieId, order: [] }, {
+      table: { name: "remix_hubs", access_group: "authorized" },
+      index: { name: "root", value: pixieId },
+      source: {
+          can_remove_referencing_records: true, // the maker can delete any remix of the family
+          referencing_index_restrictions: [{ name: "remix_root", value: pixieId, condition: "=" }], // only this family's remixes
+      },
+  });
+  ```
+
+  A public remix is posted with `reference: hubId` and `index: { name: "remix_root", value: pixieId }`. `getRecords({ table, reference: hubId })` (plus the `remix_root` index, for remixes made before hubs existed) gives the family; the hub's `data.order`, updated with `postRecord(data, { record_id })`, gives the frame order; and the maker removes a remix with `deleteRecords()`. A hub is accepted only if it belongs to the pixie's maker. It is never deleted with its pixie, because deleting it would delete every remix that references it.
 - **Tags.** `getRecords({ table, tag })` gives the `#tag` views.
 - **Paging.** `getRecords(query, { ascending: false, limit: 6, fetchMore })` with `endOfList` drives infinite scroll, and the comments' *Show more* button.
 - **Updating and deleting.** `postRecord(data, { record_id })` changes your avatar; `deleteRecords({ record_id })` deletes pixies, likes (unlike) and your avatar.
