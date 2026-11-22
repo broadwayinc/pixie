@@ -463,7 +463,11 @@ async function postPixie(event) {
     const tags = $("input_tags").value.split(",").map((t) => t.trim().replace(/^#/, "")).filter(Boolean);
     const data = { pixels, description };
     const remix = remixOf;
-    if (remix) data.remix_of = { record_id: remix.record_id, user_id: remix.user_id, name: remix.name || "" };
+    if (remix) {
+        data.remix_of = { record_id: remix.record_id, user_id: remix.user_id, name: remix.name || "" };
+        // The first pixie of the remix family: every remix carries it, so one query finds the whole family.
+        data.remix_root = remix.root || remix.record_id;
+    }
 
     const params = {
         table: {
@@ -481,6 +485,12 @@ async function postPixie(event) {
         },
         tags: tags.length ? tags.slice(0, 10) : null,
     };
+    /*
+        A remix points to its family with the custom index "remix_root" (value: the record id of the first pixie).
+        Not with a Skapi reference: references are the likes here (prevent_multiple_referencing would refuse a
+        remix from someone who liked the pixie, and every remix would count as a like).
+    */
+    if (remix) params.index = { name: "remix_root", value: data.remix_root };
     if (!isPrivate) {
         params.notification = {
             title: `${authorLabel(me)} posted a new pixie 👾`,
@@ -707,7 +717,7 @@ async function createArticleContent(p) {
             <span class="ring"></span>
             <div class="post-who">
                 <button type="button" class="uploader"></button>
-                <small><span class="when"></span><span class="remix-line" hidden> · remix of <a></a></span></small>
+                <small><span class="when"></span><span class="remix-line" hidden> · remix of <a></a></span><span class="remix-count" hidden></span></small>
             </div>
             <button type="button" class="btn small primary subscribe" hidden disabled>Follow</button>
             <button type="button" class="icon-btn delete" hidden aria-label="Delete pixie"><svg><use href="#i-trash"/></svg></button>
@@ -776,6 +786,10 @@ async function createArticleContent(p) {
     }
 
     article.querySelector(".description").textContent = p.data?.description || "";
+
+    // A pixie with remixes, or a remix, plays its remix family as an animation (loaded when it comes into view).
+    const familyRoot = p.data?.remix_root || p.data?.remix_of?.record_id || record_id;
+    if (!isPrivate) watchFamily(article, p, familyRoot);
     if (!p.data?.description) article.querySelector(".caption").classList.add("no-text");
 
     const tagsP = article.querySelector(".tags");
@@ -793,7 +807,9 @@ async function createArticleContent(p) {
     // Remix: a copy in your own studio, credited to this pixie.
     article.querySelector(".remix").onclick = () => {
         if (editor && !editor.isEmpty() && editor.value !== pixels && !confirm("Start a remix? Your current drawing stays one undo away.")) return;
-        openStudio({ pixels, remix: isMine ? null : { record_id, user_id: p.user_id, name } });
+        // Remixing your own pixie is how you make the next frame of an animation.
+        const root = p.data?.remix_root || p.data?.remix_of?.record_id || record_id;
+        openStudio({ pixels, remix: { record_id, user_id: p.user_id, name, root } });
     };
     // Download: a big PNG, a 16 x 16 PNG, or a 16 x 16 .ico icon. Transparent pixels stay transparent.
     const downloadButton = article.querySelector(".download");
@@ -908,6 +924,130 @@ async function createArticleContent(p) {
     }).catch((err) => console.error(err));
 
     return article;
+}
+
+/* ================================================================== remix animations */
+
+/*
+    A remix family is the first pixie and every remix of it, or of its remixes (all carry the index
+    remix_root = the first pixie's record id). Played in the order they were shared, it is a frame by frame
+    animation. A family is fetched once its pixie comes near the screen, and plays only while it is on screen.
+*/
+const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
+const FRAME_MS = 550;
+
+const familyObserver = new IntersectionObserver((entries) => {
+    for (const e of entries) {
+        const article = e.target;
+        if (e.isIntersecting && !article._familyLoading) {
+            article._familyLoading = true;
+            loadFamily(article);
+        }
+        article._visible = e.isIntersecting && e.intersectionRatio >= 0.4;
+        const anim = article._anim;
+        if (!anim) continue;
+        anim.visible = article._visible;
+        if (anim.visible && !anim.userPaused && !reducedMotion) playFrames(anim);
+        else stopFrames(anim);
+    }
+}, { rootMargin: "300px 0px", threshold: [0, 0.4] });
+
+function watchFamily(article, p, rootId) {
+    article._family = { p, rootId };
+    familyObserver.observe(article);
+}
+
+async function loadFamily(article) {
+    const { p, rootId } = article._family;
+    const [root, remixes] = await Promise.all([
+        rootId === p.record_id
+            ? Promise.resolve(p)
+            : skapi.getRecords({ record_id: rootId }).then((r) => r.list[0]).catch(() => null), // may be deleted
+        skapi.getRecords(
+            { table: { name: POSTS_TABLE, access_group: "authorized" }, index: { name: "remix_root", value: rootId } },
+            { limit: 60 }
+        ).then((r) => r.list).catch((err) => {
+            console.warn("Remixes not loaded", err);
+            return [];
+        }),
+    ]);
+    const family = new Map();
+    for (const r of [root, ...remixes, p]) {
+        if (r?.record_id && r.table?.name === POSTS_TABLE && r.table?.access_group !== "private" && isValid(r.data?.pixels)) {
+            family.set(r.record_id, r);
+        }
+    }
+    if (family.size < 2 || !article.isConnected) return;
+    const frames = [...family.values()].sort((a, b) => (a.uploaded || a.updated) - (b.uploaded || b.updated));
+    setupFrames(article, p.record_id, frames);
+}
+
+function setupFrames(article, ownId, frames) {
+    const img = article.querySelector(".art img");
+    const own = Math.max(0, frames.findIndex((f) => f.record_id === ownId));
+    const anim = {
+        img,
+        frames: frames.map((f) => ({ src: toDataURL(f.data.pixels), user_id: f.user_id, name: "" })),
+        own,
+        i: own,
+        timer: 0,
+        visible: !!article._visible,
+        userPaused: false,
+    };
+    article._anim = anim;
+
+    // "3 / 7 · Ann": which frame is showing and who drew it. Tap to pause or play.
+    const badge = document.createElement("button");
+    badge.type = "button";
+    badge.className = "frame-badge";
+    badge.title = "Remix animation: tap to pause or play";
+    badge.innerHTML = `<svg><use href="#i-play"/></svg><span class="frame-no"></span><span class="frame-by"></span>`;
+    anim.badge = badge;
+    const stop = (e) => e.stopPropagation();
+    badge.addEventListener("dblclick", stop);
+    badge.addEventListener("touchend", stop);
+    badge.onclick = (e) => {
+        e.stopPropagation();
+        anim.userPaused = !!anim.timer;
+        if (anim.timer) stopFrames(anim);
+        else playFrames(anim);
+    };
+    article.querySelector(".art").append(badge);
+
+    frames.forEach((f, n) => getUserInfo(f.user_id).then((u) => {
+        anim.frames[n].name = authorLabel(u);
+        if (anim.i === n) showFrame(anim, n);
+    }));
+    const count = article.querySelector(".remix-count");
+    const remixes = frames.length - 1;
+    count.textContent = ` · ${frames.length} frames`;
+    count.title = `${remixes} remix${remixes === 1 ? "" : "es"} in this family`;
+    count.hidden = false;
+    showFrame(anim, own);
+    if (anim.visible && !reducedMotion) playFrames(anim);
+}
+
+function showFrame(anim, n) {
+    anim.i = n;
+    anim.img.src = anim.frames[n].src;
+    anim.badge.querySelector(".frame-no").textContent = `${n + 1}/${anim.frames.length}`;
+    const by = anim.frames[n].name;
+    anim.badge.querySelector(".frame-by").textContent = by ? "· " + by : "";
+    anim.badge.classList.toggle("own", n === anim.own);
+}
+
+function playFrames(anim) {
+    if (anim.timer) return;
+    anim.badge.querySelector("use").setAttribute("href", "#i-pause");
+    anim.timer = setInterval(() => showFrame(anim, (anim.i + 1) % anim.frames.length), FRAME_MS);
+}
+
+// Stopped, a pixie shows its own frame.
+function stopFrames(anim) {
+    clearInterval(anim.timer);
+    anim.timer = 0;
+    anim.badge.querySelector("use").setAttribute("href", "#i-play");
+    showFrame(anim, anim.own);
 }
 
 function closeDownloadMenus() {

@@ -409,6 +409,34 @@ svg {
 
 .private-tag svg { width: 10px; height: 10px; }
 
+/* Remix animation: frame number and who drew it. */
+.frame-badge {
+    position: absolute;
+    left: 10px;
+    bottom: 10px;
+    z-index: 1;
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    max-width: calc(100% - 20px);
+    padding: 7px 9px;
+    border: 2px solid var(--paper);
+    background: var(--ink);
+    color: var(--paper);
+    box-shadow: 0 0 0 2px var(--ink);
+    font: 400 9px/1 var(--px);
+    -webkit-tap-highlight-color: transparent;
+}
+
+.frame-badge svg { width: 10px; height: 10px; flex: none; }
+.frame-badge.own { background: var(--accent); }
+.frame-by {
+    font: 600 14px/1 var(--body);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
 .heart-burst {
     position: absolute;
     inset: 0;
