@@ -1594,9 +1594,10 @@ async function openShare(article, p, name) {
 /*
     Link previews. A crawler (Threads, X, KakaoTalk...) can't see pixies (they are for signed-in users) and
     doesn't run the app, so a shared link gets a public share card: a record in "share_cards" (public) with
-    the pixie's 1200 x 630 preview picture and data.og (title, description, picture, where to go). Skapi hosting
-    answers https://pixie.skapi.com/_og/<card id> with a page whose preview tags come from that card, and sends
-    a person on to the pixie. One card per pixie per person, made the first time they share it.
+    the pixie's 1200 x 630 preview picture and data.__skapi__.og (title, description, picture, where to go).
+    Skapi hosting answers https://pixie.skapi.com/__skapi__/og/<card id> with a page whose preview tags come from
+    that card, and sends a person on to the pixie. One card per pixie per person, made the first time they share
+    it. (__skapi__ is Skapi's namespace, in addresses and in record data.)
     The route exists once Skapi hosting serves it: until then, links are the app's own address.
 */
 const SHARE_CARD_TABLE = { name: "share_cards", access_group: "public" };
@@ -1605,7 +1606,7 @@ let ogRoute = null;
 function ogRouteAvailable() {
     if (!/\.skapi\.(com|app)$/.test(location.hostname)) return Promise.resolve(false);
     // The route answers an unknown card with a redirect; a host without it answers 404.
-    ogRoute ||= fetch("/_og/probe-0000", { redirect: "manual", cache: "no-store" })
+    ogRoute ||= fetch("/__skapi__/og/probe-0000", { redirect: "manual", cache: "no-store" })
         .then((res) => res.type === "opaqueredirect" || res.status === 302)
         .catch(() => false);
     return ogRoute;
@@ -1613,7 +1614,7 @@ function ogRouteAvailable() {
 
 async function shareCardUrl(p, { frames, own, caption, name }) {
     if (!(await ogRouteAvailable())) return null;
-    const cardAddress = (id) => `${location.origin}/_og/${encodeURIComponent(id)}`;
+    const cardAddress = (id) => `${location.origin}/__skapi__/og/${encodeURIComponent(id)}`;
     const key = `pixie:card:${me.user_id}:${p.record_id}`;
     try {
         const saved = localStorage.getItem(key);
@@ -1632,13 +1633,16 @@ async function shareCardUrl(p, { frames, own, caption, name }) {
         const rec = await skapi.postRecord(
             {
                 pixie: p.record_id,
-                og: {
-                    title: title.slice(0, 190),
-                    description: animated
-                        ? `A ${frames.length}-frame 16×16 pixel animation on pixie. Tap to watch it, remix it, or paint your own.`
-                        : "16×16 pixel art in NES colors on pixie. Tap to see it, remix it, or paint your own.",
-                    image: "card",
-                    url: "/index.html#post=" + encodeURIComponent(p.record_id),
+                // What Skapi hosting reads for the link preview (and nothing else of this record).
+                __skapi__: {
+                    og: {
+                        title: title.slice(0, 190),
+                        description: animated
+                            ? `A ${frames.length}-frame 16×16 pixel animation on pixie. Tap to watch it, remix it, or paint your own.`
+                            : "16×16 pixel art in NES colors on pixie. Tap to see it, remix it, or paint your own.",
+                        image: "card",
+                        url: "/index.html#post=" + encodeURIComponent(p.record_id),
+                    },
                 },
             },
             { table: SHARE_CARD_TABLE, index: { name: "pixie", value: p.record_id } },

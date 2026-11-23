@@ -20,7 +20,7 @@
     Share target: pictures shared to pixie from other apps arrive as a POST to ./share-target; the picture is
     kept in a cache and the app turns it into 16 x 16 NES pixels in the studio (index.html#shared).
 */
-const VERSION = "pixie-v16";
+const VERSION = "pixie-v17";
 const SHELL_CACHE = VERSION + "-shell";
 const CDN_CACHE = "pixie-cdn-v1";
 const SHARE_CACHE = "pixie-share";
@@ -95,8 +95,8 @@ self.addEventListener("fetch", (event) => {
     if (req.method !== "GET") return;
 
     const sameOrigin = url.origin === self.location.origin;
-    // Link preview pages (Skapi hosting's /_og/ route) always come from the network.
-    if (sameOrigin && url.pathname.startsWith("/_og/")) return;
+    // Skapi hosting's own addresses (link preview pages, /__skapi__/og/...) always come from the network.
+    if (sameOrigin && url.pathname.startsWith("/__skapi__/")) return;
     if (sameOrigin && req.mode === "navigate") {
         event.respondWith(networkFirstPage(event));
         return;

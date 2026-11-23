@@ -123,7 +123,7 @@ export async function makeShareVideo(frames, frameMs, { minMs = 6000, onProgress
 /*
     The link preview picture of a shared pixie (1200 x 630, the size link previews use): the pixie big on the
     left, its caption and maker on the right, on pixie's graph paper. It is stored on the pixie's public share
-    card, which the address pixie.skapi.com/_og/<card id> shows to Threads, X, KakaoTalk and the like.
+    card, which the address pixie.skapi.com/__skapi__/og/<card id> shows to Threads, X, KakaoTalk and the like.
 */
 export const CARD_W = 1200;
 export const CARD_H = 630;
