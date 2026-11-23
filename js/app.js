@@ -21,6 +21,7 @@ import {
 } from "./nes.js";
 import { PixelEditor } from "./editor.js";
 import { PRESET_AVATARS } from "./avatars.js";
+import { makeShareImage, makeShareVideo, videoSupport, shareLinks } from "./share.js";
 
 // The table of pixies. The project may hold other tables too (this app grew out of a photo app): only records
 // of this table are shown.
@@ -752,6 +753,7 @@ async function createArticleContent(p) {
                 <button type="button" class="icon-btn comment-jump social" aria-label="Comment"><svg><use href="#i-comment"/></svg></button>
                 <span class="spacer"></span>
                 <button type="button" class="btn small remix" title="Open a copy in your studio"><svg><use href="#i-remix"/></svg> Remix</button>
+                <button type="button" class="icon-btn share" aria-label="Share" title="Share on Instagram, Threads, X..."><svg><use href="#i-share"/></svg></button>
                 <button type="button" class="icon-btn download" aria-label="Download" title="Download" aria-haspopup="menu" aria-expanded="false"><svg><use href="#i-download"/></svg></button>
             </div>
             <div class="download-menu" role="menu" hidden>
@@ -831,6 +833,8 @@ async function createArticleContent(p) {
         const root = p.data?.remix_root || p.data?.remix_of?.record_id || record_id;
         openStudio({ pixels, remix: { record_id, user_id: p.user_id, name, root } });
     };
+    article.querySelector(".share").onclick = () => openShare(article, p, name);
+
     // Download: a big PNG, a 16 x 16 PNG, or a 16 x 16 .ico icon. Transparent pixels stay transparent.
     const downloadButton = article.querySelector(".download");
     const menu = article.querySelector(".download-menu");
@@ -1291,6 +1295,130 @@ function stopFrames(anim) {
     anim.timer = 0;
     anim.badge.querySelector("use").setAttribute("href", "#i-play");
     showFrame(anim, anim.own);
+}
+
+/* ================================================================== sharing on Instagram, Threads, X... */
+
+/*
+    The Share panel. An animated pixie is shared as a video (made in the background as soon as the panel opens,
+    so the phone's share sheet can open the moment you tap: browsers allow it only right after a tap), a still
+    one as a picture (js/share.js). Public pixies can also be posted as a link.
+*/
+let shareJob = 0;
+let sharePreviewTimer = 0;
+let shareMedia = null; // { file } ready to share
+
+function stopSharePreview() {
+    clearInterval(sharePreviewTimer);
+    sharePreviewTimer = 0;
+}
+
+function canShareFile(type, ext) {
+    try {
+        return !!navigator.canShare?.({ files: [new File([""], "pixie." + ext, { type })] });
+    } catch (err) {
+        return false;
+    }
+}
+
+async function openShare(article, p, name) {
+    const job = ++shareJob;
+    closeDownloadMenus();
+    openPanel("sharePanel");
+    shareMedia = null;
+    const record_id = p.record_id;
+    const frames = article._familyInfo?.frames?.map((f) => f.data.pixels) || [p.data.pixels];
+    const animated = frames.length > 1;
+    const isPrivate = p.table?.access_group === "private";
+    const mine = p.user_id === me.user_id;
+    const caption = (p.data?.description || "").trim().slice(0, 120);
+    const who = mine ? "my pixie" : `a pixie by ${name}`;
+    const text = (caption ? `${caption} (${who})` : who.charAt(0).toUpperCase() + who.slice(1)) + " 👾 #pixelart #pixie";
+    const url = pageUrl("index.html#post=" + encodeURIComponent(record_id));
+
+    // Preview, playing like the post.
+    stopSharePreview();
+    const preview = $("sharePreview");
+    let n = article._anim ? article._anim.own : 0;
+    preview.src = toDataURL(frames[n]);
+    if (animated) sharePreviewTimer = setInterval(() => (preview.src = toDataURL(frames[(n = (n + 1) % frames.length)])), FRAME_MS);
+
+    // Links (public pixies only: a private one can't be opened by anyone else).
+    $("shareLinkBox").hidden = isPrivate;
+    $("sharePrivateNote").hidden = !isPrivate;
+    $("shareLinks").replaceChildren(...shareLinks(url, text).map((l) => {
+        const a = document.createElement("a");
+        a.className = "btn small";
+        a.href = l.href;
+        a.target = "_blank";
+        a.rel = "noopener";
+        a.textContent = l.name;
+        return a;
+    }));
+    $("copyLinkButton").onclick = async () => {
+        try {
+            await navigator.clipboard.writeText(url);
+            toast("Link copied");
+        } catch (err) {
+            prompt("Copy this link:", url);
+        }
+    };
+
+    // Saving
+    const own = frames[article._anim ? article._anim.own : 0];
+    const base = `pixie-${record_id}`;
+    $("saveImageButton").onclick = async () => saveFile(await makeShareImage(own), `${base}.png`);
+    $("saveGifButton").onclick = () => saveFile(toGif(frames, FRAME_MS, 20), `${base}${animated ? "-animation" : ""}.gif`);
+    $("saveGifButton").lastChild.textContent = animated ? " GIF animation" : " GIF";
+    const video = animated ? videoSupport() : null;
+    $("saveVideoButton").hidden = !video;
+    $("saveVideoButton").disabled = true;
+
+    // The file for the share sheet.
+    const shareButton = $("shareFileButton");
+    const status = $("shareStatus");
+    const kind = video ? "video" : animated ? "GIF" : "image";
+    const ext = video ? (video.startsWith("video/mp4") ? "mp4" : "webm") : animated ? "gif" : "png";
+    const mime = video ? video.split(";")[0] : animated ? "image/gif" : "image/png";
+    const sheet = canShareFile(mime, ext);
+    shareButton.hidden = !sheet;
+    shareButton.disabled = true;
+    shareButton.textContent = `Share ${kind}…`;
+    status.textContent = sheet ? "" : "Pick a site below, or save the " + kind + " and post it from the app.";
+    try {
+        let file;
+        if (video) {
+            status.textContent = "Making your video… 0%";
+            const v = await makeShareVideo(frames, FRAME_MS, {
+                onProgress: (f) => {
+                    if (job === shareJob) status.textContent = `Making your video… ${Math.round(f * 100)}%`;
+                },
+            });
+            file = new File([v.blob], `${base}.${v.ext}`, { type: v.type });
+            if (job !== shareJob) return;
+            $("saveVideoButton").disabled = false;
+            $("saveVideoButton").onclick = () => saveFile(file, file.name);
+            status.textContent = sheet ? "Your video is ready." : "Your video is ready to save.";
+        } else if (animated) {
+            file = new File([toGif(frames, FRAME_MS, 20)], `${base}-animation.gif`, { type: "image/gif" });
+        } else {
+            file = new File([await makeShareImage(own)], `${base}.png`, { type: "image/png" });
+        }
+        if (job !== shareJob) return;
+        shareMedia = { file };
+        shareButton.disabled = false;
+    } catch (err) {
+        console.error(err);
+        if (job === shareJob) status.textContent = err.message;
+    }
+    shareButton.onclick = async () => {
+        if (!shareMedia) return;
+        try {
+            await navigator.share({ files: [shareMedia.file], title: "pixie", text: `${text} ${isPrivate ? "" : url}`.trim() });
+        } catch (err) {
+            if (err.name !== "AbortError") toast("Sharing didn't work: " + err.message);
+        }
+    };
 }
 
 function closeDownloadMenus() {
@@ -1994,6 +2122,7 @@ function openPanel(id) {
 }
 
 function closePanels() {
+    stopSharePreview();
     for (const p of document.querySelectorAll(".panel")) p.hidden = true;
     if ($("studioSheet").hidden && $("composeSheet").hidden) lockScroll(false);
 }

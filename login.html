@@ -50,6 +50,7 @@
             <div class="auth-hero" aria-hidden="true"><img src="icon.svg" alt=""></div>
             <div class="palette-strip" aria-hidden="true"></div>
             <h1>Welcome back</h1>
+            <p class="shared-note" id="sharedNote" hidden>👾 Someone shared a pixie with you! Log in, or <strong>try pixie as a guest</strong> below, to see it.</p>
             <p>Paint tiny 16×16 pixel art in NES colors and share it with friends.</p>
 
             <!-- skapi.login() signs the user in. The form's action is the page Skapi opens after a successful login. -->
@@ -92,6 +93,8 @@
             destination = "index.html";
         }
         document.getElementById("loginForm").action = pageUrl(destination);
+        // A shared link (index.html#post=...) brought the visitor here.
+        document.getElementById("sharedNote").hidden = !/#post=/.test(destination);
 
         // A user who is already logged in goes on right away. A guest stays, to log in with a real account.
         userReady.then((user) => {

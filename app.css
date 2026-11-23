@@ -1326,9 +1326,38 @@ body.doc-body { padding-bottom: 40px; }
 
 /* Links to the policies on the account pages and in the profile. */
 .legal-links { margin: 10px 0 0; text-align: center; font-size: 15px; }
+.shared-note { padding: 10px 12px; background: #fdeec9; border: var(--line) dashed var(--ink); }
 .legal-links a { color: var(--muted); }
 .auth-card > .legal-links { margin: 8px 0 0; }
 .agree { color: var(--muted); font-size: 15px; margin: 14px 0 0; }
+
+/* The Share panel */
+.share-top {
+    display: grid;
+    grid-template-columns: 132px 1fr;
+    gap: 16px;
+    align-items: center;
+}
+
+.share-preview {
+    border: var(--line) solid var(--ink);
+    box-shadow: var(--shadow);
+    background: #fcfcfc;
+    line-height: 0;
+}
+
+.share-preview img { width: 100%; aspect-ratio: 1; image-rendering: pixelated; }
+.share-top .hint { margin: 10px 0 0; }
+
+.share-links,
+.share-saves {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin: 0 0 14px;
+}
+
+.share-tip { margin-top: 4px; }
 
 /* Continue with Google: white, with Google's own "G". */
 .btn.google { background: #fff; gap: 12px; }

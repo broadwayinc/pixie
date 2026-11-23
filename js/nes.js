@@ -167,7 +167,8 @@ export function toIco(str) {
     Index 0 of the color table is transparent; each frame clears to transparent before the next one.
     The LZW compression follows the GIF89a spec (the same scheme as omggif's encoder).
 */
-export function toGif(frames, delayMs = 550) {
+export function toGif(frames, delayMs = 550, scale = 1) {
+    const W = SIZE * scale; // each art pixel becomes scale x scale GIF pixels
     const decoded = frames.map(decode);
     // One color table for all frames: transparent, then every NES color used.
     const used = [...new Set(decoded.flat().filter((c) => c !== TRANSPARENT))];
@@ -178,8 +179,8 @@ export function toGif(frames, delayMs = 550) {
     const out = [];
     const u16 = (n) => out.push(n & 255, (n >> 8) & 255);
     out.push(...[..."GIF89a"].map((c) => c.charCodeAt(0)));
-    u16(SIZE);
-    u16(SIZE);
+    u16(W);
+    u16(W);
     out.push(0x80 | 0x70 | (bits - 1), 0, 0); // global color table, 8 bit color resolution
     for (let i = 0; i < tableSize; i++) out.push(...(i > 0 && i <= used.length ? RGB[used[i - 1]] : [0, 0, 0]));
     if (decoded.length > 1) {
@@ -196,10 +197,17 @@ export function toGif(frames, delayMs = 550) {
         out.push(0x2c);
         u16(0);
         u16(0);
-        u16(SIZE);
-        u16(SIZE);
+        u16(W);
+        u16(W);
         out.push(0);
-        const data = lzw(pixels.map((c) => (c === TRANSPARENT ? 0 : indexOf.get(c))), minCodeSize);
+        const indices = new Array(W * W);
+        for (let y = 0; y < W; y++) {
+            for (let x = 0; x < W; x++) {
+                const c = pixels[Math.floor(y / scale) * SIZE + Math.floor(x / scale)];
+                indices[y * W + x] = c === TRANSPARENT ? 0 : indexOf.get(c);
+            }
+        }
+        const data = lzw(indices, minCodeSize);
         out.push(minCodeSize);
         for (let i = 0; i < data.length; i += 255) {
             const block = data.slice(i, i + 255);

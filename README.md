@@ -26,6 +26,7 @@ It grew out of the photo gallery page of the Skapi HTML template (`templates-ska
 - A feed of pixies: **Recent**, **Most liked**, **Most commented**, **Following**, **My pixies**, **Private**, and pixies by tag or by person.
 - **Share** a pixie with a caption and tags, publicly or **privately** (only you can see it).
 - **Like** (double-tap the art), **comment**, **follow** people, **download** a pixie as a 512×512 PNG, a 16×16 **GIF** (an **animated GIF** when the pixie plays as an animation) or a 16×16 **.ico** icon.
+- **Share** a pixie on Instagram, Threads, TikTok, X and more (`js/share.js`): a square 1080×1080 picture, or for an animated pixie an **MP4 video** (recorded from a canvas with `MediaRecorder`, looping for at least 6 seconds; WebM where MP4 can't be recorded), handed to the phone's share sheet; links for Threads, X, Facebook, Bluesky, Reddit, WhatsApp, Telegram and LINE; or save the video, image or a 320×320 GIF and post it yourself.
 - **Remix** a pixie: it opens in your studio; when you share it, it links back to the original and its maker is notified.
 - **Remix animations**: a pixie that has remixes, or is one, plays its whole remix family **frame by frame**, with the frame number and who drew it (tap to pause). Remix your own pixie to draw the next frame of an animation.
 - **Frames**: the maker of the first pixie can **reorder** the frames of its family and **remove** anyone's remix from it.
@@ -254,6 +255,8 @@ The app is static files, so it can be served by Skapi's website hosting (HTTPS, 
 | `js/editor.js` | The 16×16 pixel editor. |
 | `js/nes.js` | The NES palette, the pixie string format, rendering, PNG and ICO export, picture → pixels, random avatars. |
 | `js/avatars.js` | The 12 pre-drawn avatars. |
+| `js/share.js` | Share pictures and videos, and the social share links. |
+| `js/google-login.js` | Continue with Google. |
 | `service.js` | Creates `skapi` and the login gate; keeps text fields above the phone keyboard; registers the service worker. |
 | `login.html`, `signup.html`, `signup-success.html`, `forgot-password.html`, `reset-password.html` | Account pages. |
 | `sw.js`, `manifest.webmanifest`, `icon.svg`, `icons/`, `offline.html` | The installable app. |
