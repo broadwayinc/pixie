@@ -162,6 +162,101 @@ export function toIco(str) {
     return new Blob([buf], { type: "image/x-icon" });
 }
 
+/*
+    A 16 x 16 GIF of one pixie, or an animation of several (frames: pixie strings), looping forever.
+    Index 0 of the color table is transparent; each frame clears to transparent before the next one.
+    The LZW compression follows the GIF89a spec (the same scheme as omggif's encoder).
+*/
+export function toGif(frames, delayMs = 550) {
+    const decoded = frames.map(decode);
+    // One color table for all frames: transparent, then every NES color used.
+    const used = [...new Set(decoded.flat().filter((c) => c !== TRANSPARENT))];
+    let bits = 1;
+    while ((1 << bits) < used.length + 1) bits++;
+    const tableSize = 1 << bits;
+    const indexOf = new Map(used.map((c, i) => [c, i + 1]));
+    const out = [];
+    const u16 = (n) => out.push(n & 255, (n >> 8) & 255);
+    out.push(...[..."GIF89a"].map((c) => c.charCodeAt(0)));
+    u16(SIZE);
+    u16(SIZE);
+    out.push(0x80 | 0x70 | (bits - 1), 0, 0); // global color table, 8 bit color resolution
+    for (let i = 0; i < tableSize; i++) out.push(...(i > 0 && i <= used.length ? RGB[used[i - 1]] : [0, 0, 0]));
+    if (decoded.length > 1) {
+        // NETSCAPE2.0: loop forever
+        out.push(0x21, 0xff, 0x0b, ...[..."NETSCAPE2.0"].map((c) => c.charCodeAt(0)), 0x03, 0x01, 0, 0, 0);
+    }
+    const minCodeSize = Math.max(2, bits);
+    for (const pixels of decoded) {
+        // Graphic control: clear to the background after the frame, index 0 is transparent, the delay.
+        out.push(0x21, 0xf9, 0x04, (2 << 2) | 1);
+        u16(Math.round(delayMs / 10));
+        out.push(0, 0);
+        // Image descriptor: the whole 16 x 16 canvas, no local color table.
+        out.push(0x2c);
+        u16(0);
+        u16(0);
+        u16(SIZE);
+        u16(SIZE);
+        out.push(0);
+        const data = lzw(pixels.map((c) => (c === TRANSPARENT ? 0 : indexOf.get(c))), minCodeSize);
+        out.push(minCodeSize);
+        for (let i = 0; i < data.length; i += 255) {
+            const block = data.slice(i, i + 255);
+            out.push(block.length, ...block);
+        }
+        out.push(0);
+    }
+    out.push(0x3b);
+    return new Blob([new Uint8Array(out)], { type: "image/gif" });
+}
+
+function lzw(indices, minCodeSize) {
+    const clearCode = 1 << minCodeSize;
+    const eoiCode = clearCode + 1;
+    let nextCode = eoiCode + 1;
+    let codeSize = minCodeSize + 1;
+    let table = new Map();
+    const out = [];
+    let cur = 0;
+    let shift = 0;
+    const emit = (code) => {
+        cur |= code << shift;
+        shift += codeSize;
+        while (shift >= 8) {
+            out.push(cur & 255);
+            cur >>>= 8;
+            shift -= 8;
+        }
+    };
+    emit(clearCode);
+    let prefix = indices[0];
+    for (let i = 1; i < indices.length; i++) {
+        const k = indices[i];
+        const key = (prefix << 8) | k;
+        const code = table.get(key);
+        if (code !== undefined) {
+            prefix = code;
+            continue;
+        }
+        emit(prefix);
+        if (nextCode === 4096) {
+            emit(clearCode);
+            nextCode = eoiCode + 1;
+            codeSize = minCodeSize + 1;
+            table = new Map();
+        } else {
+            if (nextCode >= (1 << codeSize)) codeSize++;
+            table.set(key, nextCode++);
+        }
+        prefix = k;
+    }
+    emit(prefix);
+    emit(eoiCode);
+    if (shift > 0) out.push(cur & 255);
+    return out;
+}
+
 /* ------------------------------------------------------------------ importing pictures */
 
 // The NES color closest to an RGB color ("redmean": a cheap distance that follows the eye well enough).

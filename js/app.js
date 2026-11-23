@@ -16,7 +16,7 @@
     `skapi`, `userReady`, `pageUrl` and `leavingOnPurpose` come from service.js.
 */
 import {
-    NES, BLACK, TRANSPARENT, PICKER_ROWS, colorName, encode, emptyPixels, isValid, toDataURL, toBlob, toIco,
+    NES, BLACK, TRANSPARENT, PICKER_ROWS, colorName, encode, emptyPixels, isValid, toDataURL, toBlob, toIco, toGif,
     pictureToPixels, avatarFor,
 } from "./nes.js";
 import { PixelEditor } from "./editor.js";
@@ -638,6 +638,8 @@ async function getPosts(fetchMore = true) {
     const articles = await Promise.all(posts.list.map((p) => createArticleContent(p)));
     if (!showPosts(articles, fetchMore, requestGeneration)) return;
     setMore(posts.endOfList, () => getPosts());
+    // Every pixie of this page was an older remix (see isOlderRemix()): go on to the next page.
+    if (!articles.some(Boolean) && !posts.endOfList) return getPosts(true);
 }
 
 // The feed holds the posts of the users the user follows.
@@ -719,6 +721,7 @@ async function getOnePost(record_id) {
 async function createArticleContent(p) {
     if (!me || !p || !p.record_id) return null;
     if (p.table?.name !== POSTS_TABLE || !isValid(p.data?.pixels)) return null;
+    if (await isOlderRemix(p)) return null;
     const record_id = p.record_id;
     const uploader = await getUserInfo(p.user_id);
     const isMine = p.user_id === me.user_id;
@@ -753,7 +756,7 @@ async function createArticleContent(p) {
             </div>
             <div class="download-menu" role="menu" hidden>
                 <button type="button" role="menuitem" data-format="png512">PNG <small>512×512</small></button>
-                <button type="button" role="menuitem" data-format="png16">PNG <small>16×16</small></button>
+                <button type="button" role="menuitem" data-format="gif">GIF <small>16×16</small></button>
                 <button type="button" role="menuitem" data-format="ico">ICO <small>16×16 icon</small></button>
             </div>
             <p class="likes-line social"><span class="like-count">0</span> <span class="like-word">likes</span></p>
@@ -842,8 +845,10 @@ async function createArticleContent(p) {
         item.onclick = async () => {
             closeDownloadMenus();
             const format = item.dataset.format;
-            const blob = format === "ico" ? toIco(pixels) : await toBlob(pixels, format === "png16" ? 1 : 32);
-            const suffix = format === "ico" ? ".ico" : format === "png16" ? "-16.png" : ".png";
+            // The GIF is the animation when the pixie plays one (frames in the order they play), else a still.
+            const frames = article._familyInfo?.frames?.map((f) => f.data.pixels) || [pixels];
+            const blob = format === "ico" ? toIco(pixels) : format === "gif" ? toGif(frames, FRAME_MS) : await toBlob(pixels, 32);
+            const suffix = format === "ico" ? ".ico" : format === "gif" ? (frames.length > 1 ? "-animation.gif" : ".gif") : ".png";
             saveFile(blob, `pixie-${record_id}${suffix}`);
         };
     }
@@ -995,6 +1000,43 @@ async function ensureHub(root) {
     return hub;
 }
 
+/* ================================================================== remix families */
+
+const postTime = (r) => r.uploaded || r.updated || 0;
+const familyCache = {}; // root record id -> Promise of the public remixes (index remix_root); .at
+
+// The public remixes of a family. Shared by the feed and the animations; read again after 20 seconds.
+function familyMembers(rootId) {
+    const cached = familyCache[rootId];
+    if (cached && Date.now() - cached.at < 20000) return cached;
+    const request = skapi.getRecords(
+        { table: { name: POSTS_TABLE, access_group: "authorized" }, index: { name: "remix_root", value: rootId } },
+        { limit: 100 }
+    ).then((r) => r.list).catch((err) => {
+        console.warn("Remixes not loaded", err);
+        if (familyCache[rootId] === request) delete familyCache[rootId];
+        return [];
+    });
+    request.at = Date.now();
+    familyCache[rootId] = request;
+    return request;
+}
+
+/*
+    When someone shared several remixes in one family (the frames of their animation), the feeds show only
+    their latest one; the animation still plays them all. My pixies, your own page and a link to one pixie
+    show everything.
+*/
+async function isOlderRemix(p) {
+    const root = p.data?.remix_root;
+    if (!root || p.table?.access_group === "private") return false;
+    const view = location.hash.slice(1);
+    if (view === "myposts" || view === "myprivate" || view.startsWith("post=")) return false;
+    if (view === "user=" + encodeURIComponent(me.user_id)) return false;
+    const members = await familyMembers(root);
+    return members.some((m) => m.user_id === p.user_id && m.record_id !== p.record_id && postTime(m) > postTime(p));
+}
+
 /* ================================================================== remix animations */
 
 /*
@@ -1032,13 +1074,7 @@ async function loadFamily(article) {
         rootId === p.record_id
             ? Promise.resolve(p)
             : skapi.getRecords({ record_id: rootId }).then((r) => r.list[0]).catch(() => null), // may be deleted
-        skapi.getRecords(
-            { table: { name: POSTS_TABLE, access_group: "authorized" }, index: { name: "remix_root", value: rootId } },
-            { limit: 60 }
-        ).then((r) => r.list).catch((err) => {
-            console.warn("Remixes not loaded", err);
-            return [];
-        }),
+        familyMembers(rootId),
     ]);
     // The remixes that reference the family's hub, and the order its owner set. The hub is read again for
     // every family load (its owner may have changed the order); pixies of one family loading together share it.
@@ -1061,10 +1097,11 @@ async function loadFamily(article) {
     // The owner's order first; frames it doesn't list yet (newer remixes) follow, oldest first.
     const order = Array.isArray(hub?.data?.order) ? hub.data.order : [];
     const place = (r) => (order.includes(r.record_id) ? order.indexOf(r.record_id) : Infinity);
-    const time = (r) => r.uploaded || r.updated || 0;
+    const time = postTime;
     const frames = [...family.values()].sort((a, b) => (place(a) - place(b)) || (time(a) - time(b)));
     article._familyInfo = { rootId, root, hub, frames };
     setupFrames(article, p.record_id, frames);
+    article.querySelector('[data-format="gif"] small').textContent = `16×16 · ${frames.length} frames`;
     // The maker of the first pixie can arrange its frames.
     if (hub && hub.user_id === me.user_id && p.record_id === rootId) {
         const edit = document.createElement("button");
@@ -1089,6 +1126,7 @@ function resetFrames(article) {
 }
 
 function reloadFamily(rootId) {
+    delete familyCache[rootId];
     for (const a of document.querySelectorAll("article.post")) {
         if (a._family?.rootId === rootId) loadFamily(a);
     }

@@ -25,10 +25,11 @@ It grew out of the photo gallery page of the Skapi HTML template (`templates-ska
 **The social app**
 - A feed of pixies: **Recent**, **Most liked**, **Most commented**, **Following**, **My pixies**, **Private**, and pixies by tag or by person.
 - **Share** a pixie with a caption and tags, publicly or **privately** (only you can see it).
-- **Like** (double-tap the art), **comment**, **follow** people, **download** a pixie as a PNG (512×512 or 16×16) or a 16×16 **.ico** icon.
+- **Like** (double-tap the art), **comment**, **follow** people, **download** a pixie as a 512×512 PNG, a 16×16 **GIF** (an **animated GIF** when the pixie plays as an animation) or a 16×16 **.ico** icon.
 - **Remix** a pixie: it opens in your studio; when you share it, it links back to the original and its maker is notified.
 - **Remix animations**: a pixie that has remixes, or is one, plays its whole remix family **frame by frame**, with the frame number and who drew it (tap to pause). Remix your own pixie to draw the next frame of an animation.
 - **Frames**: the maker of the first pixie can **reorder** the frames of its family and **remove** anyone's remix from it.
+- **One remix per person in the feeds**: when someone shared several remixes in one family (say, the frames of their animation), the feeds show only their latest one. *My pixies*, your own page and links to a pixie still show all of them, and the animation plays every frame.
 - **Avatars**: pick one of 12 pre-drawn avatars, **draw your own** in the studio, or keep the little 8×8 critter made from your account.
 - **Activity**: likes, comments, remixes and new followers arrive live while the app is open, and as **push notifications** when it isn't. You also get a push when someone you follow shares a pixie.
 - Accounts: sign up with email confirmation, log in, **change your name**, reset a forgotten password, recover a removed account, or just **try it as a guest**.
@@ -80,7 +81,7 @@ The pixie mascot, for example:
 .................dd..........dd.dNNd..dddd..dNNddNMNddBBBBddNMNddNNNdBQQBBBdNNNd.dNdBBQBBBBBdNd..dNdBBdBBdBBdNd...ddBBdBBdBBdd.....dlBBBBBBld......dBBdBBdBBd.......dBBddBBd.........ddBBdd..E........dBBd..EME...E..dd..dd..E..................................
 ```
 
-So the art lives in the record's data: a few hundred bytes, no file upload, and it renders instantly. The feed draws each one on a 16×16 canvas, turns it into a PNG and scales it up with `image-rendering: pixelated`. *Download* draws it again as a 512×512 or 16×16 PNG, or writes a 16×16 `.ico` (a 32-bit image with its transparency mask, built byte by byte in `toIco()`). Transparent pixels stay transparent in all three.
+So the art lives in the record's data: a few hundred bytes, no file upload, and it renders instantly. The feed draws each one on a 16×16 canvas, turns it into a PNG and scales it up with `image-rendering: pixelated`. *Download* draws it again as a 512×512 PNG, or writes a 16×16 GIF (`toGif()`: a GIF89a encoder with LZW compression; for an animation, every frame in playing order, looping) or a 16×16 `.ico` (a 32-bit image with its transparency mask, `toIco()`). Transparent pixels stay transparent in all three.
 
 ### The editor
 
