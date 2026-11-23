@@ -1330,6 +1330,11 @@ body.doc-body { padding-bottom: 40px; }
 .auth-card > .legal-links { margin: 8px 0 0; }
 .agree { color: var(--muted); font-size: 15px; margin: 14px 0 0; }
 
+/* Continue with Google: white, with Google's own "G". */
+.btn.google { background: #fff; gap: 12px; }
+.btn.google .g-logo { width: 18px; height: 18px; shape-rendering: auto; }
+.auth-card .btn.google { margin-bottom: 16px; }
+
 .danger-zone { margin: 18px 0 0; padding-top: 14px; border-top: 2px dashed rgba(28, 16, 48, .3); }
 .danger-zone .link-btn { color: var(--accent); }
 

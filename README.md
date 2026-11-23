@@ -32,7 +32,7 @@ It grew out of the photo gallery page of the Skapi HTML template (`templates-ska
 - **One remix per person in the feeds**: when someone shared several remixes in one family (say, the frames of their animation), the feeds show only their latest one. *My pixies*, your own page and links to a pixie still show all of them, and the animation plays every frame.
 - **Avatars**: pick one of 12 pre-drawn avatars, **draw your own** in the studio, or keep the little 8×8 critter made from your account.
 - **Activity**: likes, comments, remixes and new followers arrive live while the app is open, and as **push notifications** when it isn't. You also get a push when someone you follow shares a pixie.
-- Accounts: sign up with email confirmation, log in, **change your name**, reset a forgotten password, **delete your account**, recover a removed account, or just **try it as a guest**.
+- Accounts: sign up with email confirmation, log in, **continue with Google**, **change your name**, reset a forgotten password, **delete your account**, recover a removed account, or just **try it as a guest**.
 - A [Privacy Policy](privacy.html) and [Terms of Service](terms.html), linked from the login and sign-up pages and the profile.
 
 **The app**
@@ -128,6 +128,7 @@ Every backend feature is a Skapi call from the browser. Here is what pixie uses,
 | `skapi.signup(event, { signup_confirmation })` | Sign up from an HTML form. A confirmation email links back to the login page. |
 | `skapi.login(event)` | Log in from a form. Skapi redirects to the form's `action`, the page the user came from. |
 | `skapi.anonymousLogin()` | **Try it as a guest**: a temporary account, deleted 30 minutes after the visitor leaves. |
+| `skapi.forwardRequest(…, { secretName })` + `skapi.openIdLogin({ id, token })` | **Continue with Google** (`js/google-login.js`): Google returns a one-time code to `login.html`; `forwardRequest()` swaps it for an access token at `https://oauth2.googleapis.com/token`, with Skapi putting the client secret registered as the Secret Key `googlelogin` in place of `$CLIENT_SECRET` (it never reaches the browser); `openIdLogin()` signs in with the OpenID logger `googleoid`. A random `state` guards the round trip, and a new account takes its name from Google. |
 | `skapi.resendSignupConfirmation()` | Offered when a login fails with `SIGNUP_CONFIRMATION_NEEDED`. |
 | `skapi.recoverAccount(url)` | Offered when a login fails with `USER_IS_DISABLED`. |
 | `skapi.forgotPassword()` / `skapi.resetPassword(event)` | A 6-digit code by email, then a new password. |
