@@ -2078,6 +2078,60 @@ $("editNameButton").onclick = editName;
 $("nameForm").onsubmit = saveName;
 $("cancelNameButton").onclick = showName;
 
+/* ================================================================== deleting your account */
+
+/*
+    Delete my account: everything you posted is deleted right away (skapi.deleteRecords() with a table and no
+    record ids deletes only your own records in it). Then the account is closed:
+    - an account with an email: skapi.disableAccount(); Skapi deletes the rest of it after 90 days, and logging
+      in before then recovers it (login.html offers that);
+    - a guest account can't be disabled, but logging out deletes it at once.
+    Your remix hubs are kept: deleting one would also delete the remixes other people made of your pixies.
+*/
+async function deleteMyAccount() {
+    const guest = !!me.anonymous;
+    const question = guest
+        ? "Delete your guest account and everything you made? This can't be undone."
+        : "Delete your account?\n\nYour pixies, comments, likes and avatar are deleted now, and your account is closed. " +
+          "The rest of it (your name and email address) is deleted after 90 days; logging in before then brings it back.";
+    if (!confirm(question)) return;
+    const button = $("deleteAccountButton");
+    button.disabled = true;
+    $("deleteAccountHint").textContent = "Deleting…";
+    leavingOnPurpose = true;
+    try {
+        for (const [name, access_group] of [
+            [POSTS_TABLE, "authorized"], [POSTS_TABLE, "private"], ["comments", "authorized"], ["likes", "public"], ["avatars", "authorized"],
+        ]) {
+            await skapi.deleteRecords({ table: { name, access_group } }).catch((err) => {
+                if (err?.code !== "NOT_EXISTS") throw err; // nothing of yours there
+            });
+        }
+        // This device stops getting notifications for the account.
+        const sub = await currentPushSubscription().catch(() => null);
+        if (sub) {
+            const json = sub.toJSON();
+            await skapi.unsubscribeNotification(json.endpoint, json.keys).catch(() => { });
+            await sub.unsubscribe().catch(() => { });
+        }
+        try {
+            for (const key of Object.keys(localStorage)) if (key.startsWith("pixie:") && key.includes(me.user_id)) localStorage.removeItem(key);
+        } catch (err) { /* storage blocked */ }
+        navigator.clearAppBadge?.().catch(() => { });
+        if (guest) await skapi.logout();
+        else await skapi.disableAccount(); // also logs out
+        alert("Your account has been deleted. Thanks for painting with pixie!");
+        location.href = pageUrl("login.html");
+    } catch (err) {
+        leavingOnPurpose = false;
+        button.disabled = false;
+        $("deleteAccountHint").textContent = "Deletes your pixies, comments, likes and avatar, and closes your account.";
+        alert("Your account could not be deleted: " + err.message);
+    }
+}
+
+$("deleteAccountButton").onclick = deleteMyAccount;
+
 /* ================================================================== wiring */
 
 $("openStudioButton").onclick = () => openStudio();

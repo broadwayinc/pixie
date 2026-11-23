@@ -1290,6 +1290,49 @@ body.auth-body { padding-bottom: var(--kb, 0px); }
     text-align: center;
 }
 
+/* ---------------------------------------------------------- privacy policy, terms */
+
+body.doc-body { padding-bottom: 40px; }
+.doc-body .topbar-actions .btn { box-shadow: 3px 3px 0 #000; border-color: #000; }
+
+.doc {
+    width: min(760px, calc(100% - 32px));
+    margin: 28px auto 0;
+    padding: 28px clamp(18px, 4vw, 40px) 30px;
+    background: var(--paper);
+    border: 4px solid var(--ink);
+    box-shadow: 8px 8px 0 var(--ink);
+    line-height: 1.55;
+}
+
+.doc h1 { font-size: 18px; line-height: 1.5; }
+.doc h2 { font-size: 12px; margin: 2rem 0 .7rem; }
+.doc h3 { font-family: var(--body); font-size: 18px; font-weight: 700; margin: 1.2rem 0 .3rem; }
+.doc p, .doc li { overflow-wrap: anywhere; }
+.doc ul { padding-left: 1.3rem; }
+.doc li { margin: .35rem 0; }
+.doc-date { color: var(--muted); margin-top: .4rem; }
+
+.doc-summary {
+    margin: 1.4rem 0 .4rem;
+    padding: 4px 18px 8px;
+    background: #fdeec9;
+    border: var(--line) solid var(--ink);
+}
+
+.doc-summary h2 { margin-top: 1rem; }
+.doc-note { margin-top: 2rem; color: var(--muted); font-size: 15px; }
+.doc-links { margin: 1rem 0 0; }
+
+/* Links to the policies on the account pages and in the profile. */
+.legal-links { margin: 10px 0 0; text-align: center; font-size: 15px; }
+.legal-links a { color: var(--muted); }
+.auth-card > .legal-links { margin: 8px 0 0; }
+.agree { color: var(--muted); font-size: 15px; margin: 14px 0 0; }
+
+.danger-zone { margin: 18px 0 0; padding-top: 14px; border-top: 2px dashed rgba(28, 16, 48, .3); }
+.danger-zone .link-btn { color: var(--accent); }
+
 @media (prefers-reduced-motion: reduce) {
     *,
     *::before,

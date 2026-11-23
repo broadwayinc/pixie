@@ -20,7 +20,7 @@
     Share target: pictures shared to pixie from other apps arrive as a POST to ./share-target; the picture is
     kept in a cache and the app turns it into 16 x 16 NES pixels in the studio (index.html#shared).
 */
-const VERSION = "pixie-v10";
+const VERSION = "pixie-v11";
 const SHELL_CACHE = VERSION + "-shell";
 const CDN_CACHE = "pixie-cdn-v1";
 const SHARE_CACHE = "pixie-share";
@@ -34,6 +34,8 @@ const SHELL = [
     "forgot-password.html",
     "reset-password.html",
     "offline.html",
+    "privacy.html",
+    "terms.html",
     "app.css",
     "service.js",
     "manifest.webmanifest",

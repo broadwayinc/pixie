@@ -32,7 +32,8 @@ It grew out of the photo gallery page of the Skapi HTML template (`templates-ska
 - **One remix per person in the feeds**: when someone shared several remixes in one family (say, the frames of their animation), the feeds show only their latest one. *My pixies*, your own page and links to a pixie still show all of them, and the animation plays every frame.
 - **Avatars**: pick one of 12 pre-drawn avatars, **draw your own** in the studio, or keep the little 8×8 critter made from your account.
 - **Activity**: likes, comments, remixes and new followers arrive live while the app is open, and as **push notifications** when it isn't. You also get a push when someone you follow shares a pixie.
-- Accounts: sign up with email confirmation, log in, **change your name**, reset a forgotten password, recover a removed account, or just **try it as a guest**.
+- Accounts: sign up with email confirmation, log in, **change your name**, reset a forgotten password, **delete your account**, recover a removed account, or just **try it as a guest**.
+- A [Privacy Policy](privacy.html) and [Terms of Service](terms.html), linked from the login and sign-up pages and the profile.
 
 **The app**
 - Installs on Android, iPhone/iPad (iOS 16.4+) and desktop.
@@ -131,6 +132,7 @@ Every backend feature is a Skapi call from the browser. Here is what pixie uses,
 | `skapi.recoverAccount(url)` | Offered when a login fails with `USER_IS_DISABLED`. |
 | `skapi.forgotPassword()` / `skapi.resetPassword(event)` | A 6-digit code by email, then a new password. |
 | `skapi.logout()` | Log out. Before it, the device's push subscription is removed from the account. |
+| `skapi.deleteRecords({ table })` + `skapi.disableAccount()` | **Delete my account** (profile): deleting by table, with no record ids, removes only your own records, so your pixies, comments, likes and avatar go at once; then `disableAccount()` closes the account (Skapi deletes the rest after 90 days; logging in before then recovers it). A guest account can't be disabled, but logging out deletes it. |
 
 ### Profiles and users: `js/app.js`
 
@@ -255,6 +257,8 @@ The app is static files, so it can be served by Skapi's website hosting (HTTPS, 
 | `login.html`, `signup.html`, `signup-success.html`, `forgot-password.html`, `reset-password.html` | Account pages. |
 | `sw.js`, `manifest.webmanifest`, `icon.svg`, `icons/`, `offline.html` | The installable app. |
 | `og-image.png` | The link preview image. |
+| `privacy.html`, `terms.html` | The Privacy Policy and Terms of Service. |
+| `icons/logo-120.png` | A 120×120 logo for sign-in consent screens. |
 
 ## Libraries
 
