@@ -1856,19 +1856,27 @@ function updatePwaBanner() {
     $("pwaBannerGo").textContent = { install: "Install", ios: "Got it", notify: "Turn on" }[kind];
 }
 
-$("pwaBannerGo").onclick = async () => {
+/*
+    The banner closes the moment its button is tapped; the work goes on in the background and ends with a toast.
+    (enablePush() asks for permission first thing, still inside the tap, as browsers require.)
+*/
+$("pwaBannerGo").onclick = () => {
     const kind = $("pwaBanner").dataset.kind;
-    if (kind === "install") await installApp();
+    $("pwaBanner").hidden = true;
+    if (kind === "install") installApp().finally(updatePwaBanner);
     else if (kind === "ios") dismissBanner("ios");
     else if (kind === "notify") {
-        try {
-            await enablePush();
-            toast("Notifications on 🔔");
-        } catch (err) {
-            alert(err.message);
-        }
+        enablePush()
+            .then(() => {
+                toast("Notifications on 🔔");
+                updatePwaBanner();
+            })
+            .catch((err) => {
+                // Not allowed, or the prompt was closed: no banner again for a week (Activity can still turn them on).
+                dismissBanner("notify");
+                toast(err.message, { ms: 6000 });
+            });
     }
-    updatePwaBanner();
 };
 $("pwaBannerLater").onclick = () => dismissBanner($("pwaBanner").dataset.kind);
 
