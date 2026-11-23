@@ -21,7 +21,7 @@ import {
 } from "./nes.js";
 import { PixelEditor } from "./editor.js";
 import { PRESET_AVATARS } from "./avatars.js";
-import { makeShareImage, makeShareVideo, videoSupport, shareLinks } from "./share.js";
+import { makeShareImage, makeShareVideo, makeCardImage, videoSupport, shareLinks } from "./share.js";
 
 // The table of pixies. The project may hold other tables too (this app grew out of a photo app): only records
 // of this table are shown.
@@ -1494,7 +1494,9 @@ async function openShare(article, p, name) {
     const caption = (p.data?.description || "").trim().slice(0, 120);
     const who = mine ? "my pixie" : `a pixie by ${name}`;
     const text = (caption ? `${caption} (${who})` : who.charAt(0).toUpperCase() + who.slice(1)) + " 👾 #pixelart #pixie";
-    const url = pageUrl("index.html#post=" + encodeURIComponent(record_id));
+    // The link: the app's address of the pixie, replaced by its preview address once its share card is ready.
+    let url = pageUrl("index.html#post=" + encodeURIComponent(record_id));
+    const own = frames[article._anim ? article._anim.own : 0];
 
     // Preview, playing like the post.
     stopSharePreview();
@@ -1506,7 +1508,7 @@ async function openShare(article, p, name) {
     // Links (public pixies only: a private one can't be opened by anyone else).
     $("shareLinkBox").hidden = isPrivate;
     $("sharePrivateNote").hidden = !isPrivate;
-    $("shareLinks").replaceChildren(...shareLinks(url, text).map((l) => {
+    const renderLinks = () => $("shareLinks").replaceChildren(...shareLinks(url, text).map((l) => {
         const a = document.createElement("a");
         a.className = "btn small";
         a.href = l.href;
@@ -1515,6 +1517,15 @@ async function openShare(article, p, name) {
         a.textContent = l.name;
         return a;
     }));
+    renderLinks();
+    if (!isPrivate) {
+        shareCardUrl(p, { frames, own, caption, name }).then((cardUrl) => {
+            if (cardUrl && job === shareJob) {
+                url = cardUrl;
+                renderLinks();
+            }
+        }).catch((err) => console.warn("No preview link", err));
+    }
     $("copyLinkButton").onclick = async () => {
         try {
             await navigator.clipboard.writeText(url);
@@ -1525,7 +1536,6 @@ async function openShare(article, p, name) {
     };
 
     // Saving
-    const own = frames[article._anim ? article._anim.own : 0];
     const base = `pixie-${record_id}`;
     $("saveImageButton").onclick = async () => saveFile(await makeShareImage(own), `${base}.png`);
     $("saveGifButton").onclick = () => saveFile(toGif(frames, FRAME_MS, 20), `${base}${animated ? "-animation" : ""}.gif`);
@@ -1581,6 +1591,75 @@ async function openShare(article, p, name) {
     };
 }
 
+/*
+    Link previews. A crawler (Threads, X, KakaoTalk...) can't see pixies (they are for signed-in users) and
+    doesn't run the app, so a shared link gets a public share card: a record in "share_cards" (public) with
+    the pixie's 1200 x 630 preview picture and data.og (title, description, picture, where to go). Skapi hosting
+    answers https://pixie.skapi.com/_og/<card id> with a page whose preview tags come from that card, and sends
+    a person on to the pixie. One card per pixie per person, made the first time they share it.
+    The route exists once Skapi hosting serves it: until then, links are the app's own address.
+*/
+const SHARE_CARD_TABLE = { name: "share_cards", access_group: "public" };
+let ogRoute = null;
+
+function ogRouteAvailable() {
+    if (!/\.skapi\.(com|app)$/.test(location.hostname)) return Promise.resolve(false);
+    // The route answers an unknown card with a redirect; a host without it answers 404.
+    ogRoute ||= fetch("/_og/probe-0000", { redirect: "manual", cache: "no-store" })
+        .then((res) => res.type === "opaqueredirect" || res.status === 302)
+        .catch(() => false);
+    return ogRoute;
+}
+
+async function shareCardUrl(p, { frames, own, caption, name }) {
+    if (!(await ogRouteAvailable())) return null;
+    const cardAddress = (id) => `${location.origin}/_og/${encodeURIComponent(id)}`;
+    const key = `pixie:card:${me.user_id}:${p.record_id}`;
+    try {
+        const saved = localStorage.getItem(key);
+        if (saved) return cardAddress(saved);
+    } catch (err) { /* storage blocked */ }
+    // A card made on another device.
+    const found = (await skapi.getRecords(
+        { table: SHARE_CARD_TABLE, index: { name: "pixie", value: p.record_id } },
+        { limit: 50 }
+    ).catch(() => ({ list: [] }))).list.find((r) => r.user_id === me.user_id);
+    let id = found?.record_id;
+    if (!id) {
+        const picture = await makeCardImage(own, { caption, by: name, frames: frames.length });
+        const animated = frames.length > 1;
+        const title = (caption ? `${caption} · ` : "") + `a pixie by ${name}`;
+        const rec = await skapi.postRecord(
+            {
+                pixie: p.record_id,
+                og: {
+                    title: title.slice(0, 190),
+                    description: animated
+                        ? `A ${frames.length}-frame 16×16 pixel animation on pixie. Tap to watch it, remix it, or paint your own.`
+                        : "16×16 pixel art in NES colors on pixie. Tap to see it, remix it, or paint your own.",
+                    image: "card",
+                    url: "/index.html#post=" + encodeURIComponent(p.record_id),
+                },
+            },
+            { table: SHARE_CARD_TABLE, index: { name: "pixie", value: p.record_id } },
+            [{ name: "card", file: new File([picture], "card.png", { type: "image/png" }) }]
+        );
+        id = rec.record_id;
+    }
+    try { localStorage.setItem(key, id); } catch (err) { /* storage blocked */ }
+    return cardAddress(id);
+}
+
+// Your share cards of a pixie go with it.
+async function deleteShareCards(record_id) {
+    const mine = (await skapi.getRecords(
+        { table: SHARE_CARD_TABLE, index: { name: "pixie", value: record_id } },
+        { limit: 100 }
+    ).catch(() => ({ list: [] }))).list.filter((r) => r.user_id === me.user_id).map((r) => r.record_id);
+    if (mine.length) await skapi.deleteRecords({ record_id: mine }).catch((err) => console.warn(err));
+    try { localStorage.removeItem(`pixie:card:${me.user_id}:${record_id}`); } catch (err) { /* storage blocked */ }
+}
+
 function closeDownloadMenus() {
     for (const m of document.querySelectorAll(".download-menu:not([hidden])")) {
         m.hidden = true;
@@ -1618,6 +1697,7 @@ async function deletePost(article, record_id) {
     if (!confirm("Delete this pixie?")) return;
     try {
         await skapi.deleteRecords({ record_id });
+        deleteShareCards(record_id);
         article.remove();
         if (!section_posts.querySelector("article")) showEmptyMessage(emptyTextForView());
         toast("Pixie deleted");
@@ -2393,7 +2473,7 @@ async function deleteMyAccount() {
     leavingOnPurpose = true;
     try {
         for (const [name, access_group] of [
-            [POSTS_TABLE, "authorized"], [POSTS_TABLE, "private"], [REMIX_TABLE, "authorized"], ["comments", "authorized"], ["likes", "public"], ["avatars", "authorized"],
+            [POSTS_TABLE, "authorized"], [POSTS_TABLE, "private"], [REMIX_TABLE, "authorized"], ["share_cards", "public"], ["comments", "authorized"], ["likes", "public"], ["avatars", "authorized"],
         ]) {
             await skapi.deleteRecords({ table: { name, access_group } }).catch((err) => {
                 if (err?.code !== "NOT_EXISTS") throw err; // nothing of yours there

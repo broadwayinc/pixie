@@ -121,6 +121,88 @@ export async function makeShareVideo(frames, frameMs, { minMs = 6000, onProgress
 }
 
 /*
+    The link preview picture of a shared pixie (1200 x 630, the size link previews use): the pixie big on the
+    left, its caption and maker on the right, on pixie's graph paper. It is stored on the pixie's public share
+    card, which the address pixie.skapi.com/_og/<card id> shows to Threads, X, KakaoTalk and the like.
+*/
+export const CARD_W = 1200;
+export const CARD_H = 630;
+
+function wrapLines(ctx, text, maxWidth, maxLines) {
+    const words = String(text || "").split(/\s+/).filter(Boolean);
+    const lines = [];
+    let line = "";
+    for (const word of words) {
+        const next = line ? line + " " + word : word;
+        if (ctx.measureText(next).width <= maxWidth) {
+            line = next;
+            continue;
+        }
+        if (line) lines.push(line);
+        line = word;
+        while (ctx.measureText(line).width > maxWidth && line.length > 1) line = line.slice(0, -1);
+        if (lines.length === maxLines) break;
+    }
+    if (line && lines.length < maxLines) lines.push(line);
+    if (lines.length === maxLines && words.join(" ").length > lines.join(" ").length) {
+        let last = lines[maxLines - 1];
+        while (ctx.measureText(last + "…").width > maxWidth && last.length > 1) last = last.slice(0, -1);
+        lines[maxLines - 1] = last + "…";
+    }
+    return lines;
+}
+
+export async function makeCardImage(str, { caption = "", by = "", frames = 1 } = {}) {
+    await loadFont();
+    await document.fonts?.load?.('700 34px "Pixelify Sans"').catch(() => { });
+    const canvas = document.createElement("canvas");
+    canvas.width = CARD_W;
+    canvas.height = CARD_H;
+    const ctx = canvas.getContext("2d");
+    ctx.imageSmoothingEnabled = false;
+    ctx.fillStyle = "#fce0a8";
+    ctx.fillRect(0, 0, CARD_W, CARD_H);
+    ctx.fillStyle = "rgba(28, 16, 48, 0.07)";
+    for (let k = 0; k <= CARD_W; k += 30) ctx.fillRect(k, 0, 3, CARD_H);
+    for (let k = 0; k <= CARD_H; k += 30) ctx.fillRect(0, k, CARD_W, 3);
+    // The art: 16 x 30 = 480 pixels, framed
+    const art = 480, x = 70, y = 70;
+    ctx.fillStyle = "#1c1030";
+    ctx.fillRect(x - 8 + 14, y - 8 + 14, art + 16, art + 16);
+    ctx.fillRect(x - 8, y - 8, art + 16, art + 16);
+    ctx.fillStyle = "#fcfcfc";
+    ctx.fillRect(x, y, art, art);
+    const px = decode(str);
+    const cell = art / SIZE;
+    for (let i = 0; i < px.length; i++) {
+        if (px[i] === TRANSPARENT) continue;
+        ctx.fillStyle = NES[px[i]];
+        ctx.fillRect(x + (i % SIZE) * cell, y + Math.floor(i / SIZE) * cell, cell, cell);
+    }
+    // The words
+    const tx = 620, tw = CARD_W - tx - 60;
+    ctx.fillStyle = "#1c1030";
+    ctx.textAlign = "left";
+    ctx.textBaseline = "alphabetic";
+    ctx.font = '44px "Press Start 2P", monospace';
+    ctx.fillText("pixie", tx, 140);
+    ctx.fillStyle = "#e40058";
+    ctx.font = '18px "Press Start 2P", monospace';
+    ctx.fillText(frames > 1 ? `16×16 · ${frames} frames` : "16×16 pixel art", tx, 190);
+    ctx.fillStyle = "#1c1030";
+    ctx.font = '700 40px "Pixelify Sans", system-ui, sans-serif';
+    const lines = wrapLines(ctx, caption || "A tiny 16×16 pixie", tw, 4);
+    lines.forEach((l, n) => ctx.fillText(l, tx, 270 + n * 52));
+    ctx.fillStyle = "#6a5d7b";
+    ctx.font = '500 32px "Pixelify Sans", system-ui, sans-serif';
+    if (by) ctx.fillText(wrapLines(ctx, "by " + by, tw, 1)[0] || "", tx, 270 + lines.length * 52 + 30);
+    ctx.fillStyle = "#1c1030";
+    ctx.font = '20px "Press Start 2P", monospace';
+    ctx.fillText("pixie.skapi.com", tx, 548);
+    return new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
+}
+
+/*
     Sites with a "share" page that takes a link. (Instagram and TikTok have none: they only take the video or
     picture itself, through the phone's share sheet or by posting a saved file from their app.)
 */
