@@ -521,6 +521,8 @@ async function postPixie(event) {
         if (remix && !isPrivate && rec?.record_id) {
             notifyUser(remix.user_id, { kind: "remix", post: rec.record_id }, `🎨 ${authorLabel(me)} remixed your pixie`);
         }
+        // Families and remix lists changed: read them again.
+        for (const key of Object.keys(queryCache)) delete queryCache[key];
         // A fresh canvas for the next one.
         editor.load(encode(emptyPixels()));
         remixOf = null;
@@ -622,22 +624,62 @@ function setMore(endOfList, fn) {
     fetchMoreButton.disabled = endOfList;
     fetchMoreButton.hidden = endOfList;
     fetchMoreButton.onclick = fn;
+    if (!endOfList) requestAnimationFrame(loadMoreIfInView);
+}
+
+/*
+    The observer below loads the next page when "Load more" comes into view. It only fires when the button
+    enters or leaves the view, so when a short page leaves the button on screen, nothing would load the next
+    page: check again after every page.
+*/
+function loadMoreIfInView() {
+    if (fetchMoreButton.disabled || fetchMoreButton.hidden || !section_posts.querySelector("article")) return;
+    const r = fetchMoreButton.getBoundingClientRect();
+    if (r.top < window.innerHeight + 400 && r.bottom > -400) fetchMoreButton.click();
+}
+
+/*
+    Pages hold 6 pixies. When a page turns out mostly hidden (older remixes, see isOlderRemix(), or records of
+    other tables in the feed), the next one is twice as big, up to 60, so a long run of hidden records is
+    passed quickly. Every new view starts again at 6.
+*/
+const PAGE = 6;
+let pageSize = PAGE;
+/*
+    The app keeps the page cursor itself (the startKey Skapi returns with each page) instead of fetchMore,
+    because fetchMore starts over when the page size changes.
+*/
+let pageCursor = null;
+
+function pageOptions() {
+    return { ascending: false, limit: pageSize, ...(pageCursor ? { startKey: pageCursor } : {}) };
+}
+
+function nextPageSize(articles) {
+    const shown = articles.filter(Boolean).length;
+    pageSize = shown < articles.length / 2 ? Math.min(pageSize * 2, 60) : PAGE;
 }
 
 async function getPosts(fetchMore = true) {
+    if (!fetchMore) {
+        pageSize = PAGE;
+        pageCursor = null;
+    }
     fetchMoreButton.disabled = true;
     const requestGeneration = ++fetchGeneration;
     let posts;
     try {
-        posts = await skapi.getRecords(fetchQuery, { ascending: false, limit: 6, fetchMore });
+        posts = await skapi.getRecords(fetchQuery, pageOptions());
     } catch (err) {
         console.error(err);
         if (requestGeneration === fetchGeneration) showFetchError(err, fetchMore, () => getPosts());
         return;
     }
     if (requestGeneration !== fetchGeneration) return;
+    pageCursor = posts.startKey;
     const articles = await Promise.all(posts.list.map((p) => createArticleContent(p)));
     if (!showPosts(articles, fetchMore, requestGeneration)) return;
+    nextPageSize(articles);
     setMore(posts.endOfList, () => getPosts());
     // Every pixie of this page was an older remix (see isOlderRemix()): go on to the next page.
     if (!articles.some(Boolean) && !posts.endOfList) return getPosts(true);
@@ -645,20 +687,26 @@ async function getPosts(fetchMore = true) {
 
 // The feed holds the posts of the users the user follows.
 async function getFeed(fetchMore = true) {
+    if (!fetchMore) {
+        pageSize = PAGE;
+        pageCursor = null;
+    }
     fetchMoreButton.disabled = true;
     const requestGeneration = ++fetchGeneration;
     let posts;
     try {
-        posts = await skapi.getFeed({ access_group: "authorized" }, { ascending: false, limit: 6, fetchMore });
+        posts = await skapi.getFeed({ access_group: "authorized" }, pageOptions());
     } catch (err) {
         console.error(err);
         if (requestGeneration === fetchGeneration) showFetchError(err, fetchMore, () => getFeed());
         return;
     }
     if (requestGeneration !== fetchGeneration) return;
+    pageCursor = posts.startKey;
     // The feed has every record the people you follow posted to it: only pixies are shown.
     const articles = await Promise.all(posts.list.map((p) => createArticleContent(p)));
     if (!showPosts(articles, fetchMore, requestGeneration)) return;
+    nextPageSize(articles);
     setMore(posts.endOfList, () => getFeed());
     if (!articles.some(Boolean) && !posts.endOfList) return getFeed(true);
 }
@@ -1007,23 +1055,58 @@ async function ensureHub(root) {
 /* ================================================================== remix families */
 
 const postTime = (r) => r.uploaded || r.updated || 0;
-const familyCache = {}; // root record id -> Promise of the public remixes (index remix_root); .at
+const MAX_FAMILY = 1000; // frames read for one animation at most
 
-// The public remixes of a family. Shared by the feed and the animations; read again after 20 seconds.
-function familyMembers(rootId) {
-    const cached = familyCache[rootId];
+// Every record of a query, page after page (100 per page), up to max.
+async function fetchAll(query, max = MAX_FAMILY) {
+    const out = [];
+    let fetchMore = false;
+    for (; ;) {
+        const res = await skapi.getRecords(query, { limit: 100, fetchMore });
+        out.push(...res.list);
+        if (res.endOfList || !res.list.length || out.length >= max) return out;
+        fetchMore = true;
+    }
+}
+
+/*
+    Cached queries (a Promise per key, read again after 20 seconds), so pixies of one family loading together
+    share one request instead of paging through the same records each.
+*/
+const queryCache = {};
+function cachedQuery(key, run) {
+    const cached = queryCache[key];
     if (cached && Date.now() - cached.at < 20000) return cached;
-    const request = skapi.getRecords(
-        { table: { name: POSTS_TABLE, access_group: "authorized" }, index: { name: "remix_root", value: rootId } },
-        { limit: 100 }
-    ).then((r) => r.list).catch((err) => {
-        console.warn("Remixes not loaded", err);
-        if (familyCache[rootId] === request) delete familyCache[rootId];
+    const request = run().catch((err) => {
+        console.warn("Not loaded:", key, err);
+        if (queryCache[key] === request) delete queryCache[key];
         return [];
     });
     request.at = Date.now();
-    familyCache[rootId] = request;
+    queryCache[key] = request;
     return request;
+}
+
+// All the public remixes of a family carrying its index (every remix does).
+function familyMembers(rootId) {
+    return cachedQuery("family:" + rootId, () => fetchAll(
+        { table: { name: POSTS_TABLE, access_group: "authorized" }, index: { name: "remix_root", value: rootId } }
+    ));
+}
+
+// All the public remixes that reference a family's hub.
+function hubRemixes(hubId) {
+    return cachedQuery("hub:" + hubId, () => fetchAll(
+        { table: { name: POSTS_TABLE, access_group: "authorized" }, reference: hubId }
+    ));
+}
+
+// One person's remixes in a family: a small query, however big the family is.
+function personsRemixes(hubId, user_id) {
+    return cachedQuery(`hub:${hubId}:user:${user_id}`, () => fetchAll(
+        { table: { name: POSTS_TABLE, access_group: "authorized" }, index: { name: "$user_id", value: user_id }, reference: hubId },
+        200
+    ));
 }
 
 /*
@@ -1037,8 +1120,12 @@ async function isOlderRemix(p) {
     const view = location.hash.slice(1);
     if (view === "myposts" || view === "myprivate" || view.startsWith("post=")) return false;
     if (view === "user=" + encodeURIComponent(me.user_id)) return false;
-    const members = await familyMembers(root);
-    return members.some((m) => m.user_id === p.user_id && m.record_id !== p.record_id && postTime(m) > postTime(p));
+    // Only this person's remixes of the family are read (the family itself can be huge). Remixes made before
+    // remix hubs existed have no hub: for those, the family is read.
+    const theirs = p.data?.remix_hub
+        ? await personsRemixes(p.data.remix_hub, p.user_id)
+        : (await familyMembers(root)).filter((m) => m.user_id === p.user_id);
+    return theirs.some((m) => m.record_id !== p.record_id && postTime(m) > postTime(p));
 }
 
 /* ================================================================== remix animations */
@@ -1084,12 +1171,7 @@ async function loadFamily(article) {
     // every family load (its owner may have changed the order); pixies of one family loading together share it.
     if (Date.now() - (hubCache[rootId]?.at || 0) > 3000) delete hubCache[rootId];
     const hub = root ? await ensureHub(root).catch(() => null) : null;
-    const referencing = hub
-        ? await skapi.getRecords(
-            { table: { name: POSTS_TABLE, access_group: "authorized" }, reference: hub.record_id },
-            { limit: 60 }
-        ).then((r) => r.list).catch(() => [])
-        : [];
+    const referencing = hub ? await hubRemixes(hub.record_id) : [];
     const family = new Map();
     for (const r of [root, ...remixes, ...referencing, p]) {
         if (r?.record_id && r.table?.name === POSTS_TABLE && r.table?.access_group !== "private" && isValid(r.data?.pixels)) {
@@ -1130,7 +1212,7 @@ function resetFrames(article) {
 }
 
 function reloadFamily(rootId) {
-    delete familyCache[rootId];
+    for (const key of Object.keys(queryCache)) if (key.startsWith("family:" + rootId) || key.startsWith("hub:")) delete queryCache[key];
     for (const a of document.querySelectorAll("article.post")) {
         if (a._family?.rootId === rootId) loadFamily(a);
     }
