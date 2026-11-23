@@ -26,6 +26,13 @@ import { makeShareImage, makeShareVideo, videoSupport, shareLinks } from "./shar
 // The table of pixies. The project may hold other tables too (this app grew out of a photo app): only records
 // of this table are shown.
 const POSTS_TABLE = "pixies";
+/*
+    Public remixes live in their own table, so the feeds (which read only "pixies") list originals only, however
+    many remixes there are. A family's remixes are fetched when someone taps ▶ Remixes. Remixes shared before
+    this table existed are in "pixies" (they carry data.remix_root) and the feeds skip them.
+*/
+const REMIX_TABLE = "remixes";
+const PIXIE_TABLES = [POSTS_TABLE, REMIX_TABLE];
 
 const $ = (id) => document.getElementById(id);
 const section_posts = $("section_posts");
@@ -459,6 +466,7 @@ async function postPixie(event) {
     postButton.textContent = "Sharing…";
 
     const isPrivate = $("input_private").checked;
+    const asRemix = !!remixOf && !isPrivate; // a private remix stays in "pixies", with your other private pixies
     const description = form.elements.description.value.trim();
     // "tag1, tag2," becomes ["tag1", "tag2"]: an empty tag would make postRecord() refuse the whole post.
     const tags = $("input_tags").value.split(",").map((t) => t.trim().replace(/^#/, "")).filter(Boolean);
@@ -472,13 +480,15 @@ async function postPixie(event) {
 
     const params = {
         table: {
-            name: POSTS_TABLE,
+            name: asRemix ? REMIX_TABLE : POSTS_TABLE,
             // A private pixie can only be read by its maker. Other pixies can be read by any logged in user.
             access_group: isPrivate ? "private" : "authorized",
             subscription: {
                 is_subscription_record: false, // The pixies stay queryable together with everyone else's.
-                upload_to_feed: !isPrivate, // Goes to the "Following" feed of the user's followers.
-                notify_subscribers: !isPrivate, // Followers who turned notifications on get a push.
+                // Originals go to the "Following" feed of the user's followers, and notify those who turned
+                // notifications on. Remixes don't: the feeds list originals.
+                upload_to_feed: !isPrivate && !asRemix,
+                notify_subscribers: !isPrivate && !asRemix,
             },
         },
         source: {
@@ -505,7 +515,7 @@ async function postPixie(event) {
             data.remix_hub = hub.record_id;
         }
     }
-    if (!isPrivate) {
+    if (!isPrivate && !asRemix) {
         params.notification = {
             title: `${authorLabel(me)} posted a new pixie 👾`,
             body: description.slice(0, 140) || "Tap to see it",
@@ -521,8 +531,9 @@ async function postPixie(event) {
         if (remix && !isPrivate && rec?.record_id) {
             notifyUser(remix.user_id, { kind: "remix", post: rec.record_id }, `🎨 ${authorLabel(me)} remixed your pixie`);
         }
-        // Families and remix lists changed: read them again.
+        // Families, remix lists and remix counts changed: read them again.
         for (const key of Object.keys(queryCache)) delete queryCache[key];
+        for (const key of Object.keys(hubCache)) delete hubCache[key];
         // A fresh canvas for the next one.
         editor.load(encode(emptyPixels()));
         remixOf = null;
@@ -530,8 +541,9 @@ async function postPixie(event) {
         form.reset();
         closeCompose();
         closeStudio();
-        toast(isPrivate ? "Saved to your private pixies 🔒" : "Shared! ✨");
-        const target = isPrivate ? "#myprivate" : "";
+        toast(isPrivate ? "Saved to your private pixies 🔒" : asRemix ? "Remix shared! ✨" : "Shared! ✨");
+        // A new remix isn't in the feeds (they list originals): show it on its own.
+        const target = isPrivate ? "#myprivate" : asRemix ? "#post=" + encodeURIComponent(rec.record_id) : "";
         if (location.hash.slice(1) !== target.slice(1)) location.hash = target;
         else initialFetch();
     } catch (err) {
@@ -585,6 +597,7 @@ function showEmptyMessage(text) {
 function emptyTextForView() {
     const hash = location.hash.slice(1);
     if (hash === "feed") return "Nothing here yet. Follow people and their new pixies show up here.";
+    if (hash === "myremixes") return "No remixes yet. Tap Remix on any pixie to make your own version.";
     if (hash === "myposts" || hash === "myprivate") return "No pixies yet. Tap the brush to paint your first one!";
     return "No pixies yet. Be the first: tap the brush and paint something! 🖌️";
 }
@@ -639,7 +652,7 @@ function loadMoreIfInView() {
 }
 
 /*
-    Pages hold 6 pixies. When a page turns out mostly hidden (older remixes, see isOlderRemix(), or records of
+    Pages hold 6 pixies. When a page turns out mostly hidden (remixes, see hiddenInFeed(), or records of
     other tables in the feed), the next one is twice as big, up to 60, so a long run of hidden records is
     passed quickly. Every new view starts again at 6.
 */
@@ -681,7 +694,7 @@ async function getPosts(fetchMore = true) {
     if (!showPosts(articles, fetchMore, requestGeneration)) return;
     nextPageSize(articles);
     setMore(posts.endOfList, () => getPosts());
-    // Every pixie of this page was an older remix (see isOlderRemix()): go on to the next page.
+    // Every pixie of this page was a hidden remix (see hiddenInFeed()): go on to the next page.
     if (!articles.some(Boolean) && !posts.endOfList) return getPosts(true);
 }
 
@@ -769,8 +782,8 @@ async function getOnePost(record_id) {
 */
 async function createArticleContent(p) {
     if (!me || !p || !p.record_id) return null;
-    if (p.table?.name !== POSTS_TABLE || !isValid(p.data?.pixels)) return null;
-    if (await isOlderRemix(p)) return null;
+    if (!PIXIE_TABLES.includes(p.table?.name) || !isValid(p.data?.pixels)) return null;
+    if (hiddenInFeed(p)) return null;
     const record_id = p.record_id;
     const uploader = await getUserInfo(p.user_id);
     const isMine = p.user_id === me.user_id;
@@ -809,6 +822,7 @@ async function createArticleContent(p) {
                 <button type="button" role="menuitem" data-format="gif">GIF <small>16×16</small></button>
                 <button type="button" role="menuitem" data-format="ico">ICO <small>16×16 icon</small></button>
             </div>
+            <div class="family-row" hidden></div>
             <p class="likes-line social"><span class="like-count">0</span> <span class="like-word">likes</span></p>
             <p class="caption"><strong class="cap-name"></strong><span class="description"></span></p>
             <p class="tags"></p>
@@ -898,7 +912,7 @@ async function createArticleContent(p) {
             closeDownloadMenus();
             const format = item.dataset.format;
             // The GIF is the animation when the pixie plays one (frames in the order they play), else a still.
-            const frames = article._familyInfo?.frames?.map((f) => f.data.pixels) || [pixels];
+            const frames = (format === "gif" && (await familyFrames(article))) || [pixels];
             const blob = format === "ico" ? toIco(pixels) : format === "gif" ? toGif(frames, FRAME_MS) : await toBlob(pixels, 32);
             const suffix = format === "ico" ? ".ico" : format === "gif" ? (frames.length > 1 ? "-animation.gif" : ".gif") : ".png";
             saveFile(blob, `pixie-${record_id}${suffix}`);
@@ -1087,45 +1101,33 @@ function cachedQuery(key, run) {
     return request;
 }
 
-// All the public remixes of a family carrying its index (every remix does).
+// All the public remixes of a family carrying its index (every remix does): in "remixes", and older ones in "pixies".
 function familyMembers(rootId) {
-    return cachedQuery("family:" + rootId, () => fetchAll(
-        { table: { name: POSTS_TABLE, access_group: "authorized" }, index: { name: "remix_root", value: rootId } }
-    ));
+    return cachedQuery("family:" + rootId, async () => {
+        const [remixes, older] = await Promise.all([REMIX_TABLE, POSTS_TABLE].map((name) => fetchAll(
+            { table: { name, access_group: "authorized" }, index: { name: "remix_root", value: rootId } }
+        )));
+        return [...older, ...remixes];
+    });
 }
 
-// All the public remixes that reference a family's hub.
+// All the public remixes that reference a family's hub (in any table).
 function hubRemixes(hubId) {
-    return cachedQuery("hub:" + hubId, () => fetchAll(
-        { table: { name: POSTS_TABLE, access_group: "authorized" }, reference: hubId }
-    ));
-}
-
-// One person's remixes in a family: a small query, however big the family is.
-function personsRemixes(hubId, user_id) {
-    return cachedQuery(`hub:${hubId}:user:${user_id}`, () => fetchAll(
-        { table: { name: POSTS_TABLE, access_group: "authorized" }, index: { name: "$user_id", value: user_id }, reference: hubId },
-        200
-    ));
+    return cachedQuery("hub:" + hubId, () => fetchAll({ reference: hubId }));
 }
 
 /*
-    When someone shared several remixes in one family (the frames of their animation), the feeds show only
-    their latest one; the animation still plays them all. My pixies, your own page and a link to one pixie
-    show everything.
+    The feeds list originals. Remixes are seen by playing their family (▶ Remixes), in My remixes, your own
+    page, and when opened on their own (a notification or a link). Remixes shared before the "remixes" table
+    existed are still in "pixies": they are skipped here the same way.
 */
-async function isOlderRemix(p) {
-    const root = p.data?.remix_root;
-    if (!root || p.table?.access_group === "private") return false;
+function hiddenInFeed(p) {
+    const isRemix = p.table?.name === REMIX_TABLE || !!p.data?.remix_root;
+    if (!isRemix || p.table?.access_group === "private") return false;
     const view = location.hash.slice(1);
-    if (view === "myposts" || view === "myprivate" || view.startsWith("post=")) return false;
+    if (["myposts", "myprivate", "myremixes"].includes(view) || view.startsWith("post=")) return false;
     if (view === "user=" + encodeURIComponent(me.user_id)) return false;
-    // Only this person's remixes of the family are read (the family itself can be huge). Remixes made before
-    // remix hubs existed have no hub: for those, the family is read.
-    const theirs = p.data?.remix_hub
-        ? await personsRemixes(p.data.remix_hub, p.user_id)
-        : (await familyMembers(root)).filter((m) => m.user_id === p.user_id);
-    return theirs.some((m) => m.record_id !== p.record_id && postTime(m) > postTime(p));
+    return true;
 }
 
 /* ================================================================== remix animations */
@@ -1135,21 +1137,25 @@ async function isOlderRemix(p) {
     remix_root = the first pixie's record id). Played in the order they were shared, it is a frame by frame
     animation. A family is fetched once its pixie comes near the screen, and plays only while it is on screen.
 */
-const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
 const FRAME_MS = 550;
 
+/*
+    Nothing is fetched or played until asked. When a pixie comes near the screen, one small lookup tells whether
+    it has remixes (its hub's reference count); then a ▶ Remixes button appears. Tapping it fetches the family
+    and plays it. A playing animation pauses while off screen and goes on when it comes back.
+*/
 const familyObserver = new IntersectionObserver((entries) => {
     for (const e of entries) {
         const article = e.target;
-        if (e.isIntersecting && !article._familyLoading) {
-            article._familyLoading = true;
-            loadFamily(article);
+        if (e.isIntersecting && !article._probed) {
+            article._probed = true;
+            probeFamily(article);
         }
         article._visible = e.isIntersecting && e.intersectionRatio >= 0.4;
         const anim = article._anim;
         if (!anim) continue;
         anim.visible = article._visible;
-        if (anim.visible && !anim.userPaused && !reducedMotion) playFrames(anim);
+        if (anim.visible && anim.wanted) playFrames(anim);
         else stopFrames(anim);
     }
 }, { rootMargin: "300px 0px", threshold: [0, 0.4] });
@@ -1157,6 +1163,78 @@ const familyObserver = new IntersectionObserver((entries) => {
 function watchFamily(article, p, rootId) {
     article._family = { p, rootId };
     familyObserver.observe(article);
+}
+
+// Does this pixie have a remix family? A remix always does; an original, when its hub has references.
+async function probeFamily(article) {
+    const { p, rootId } = article._family;
+    const isRemix = p.record_id !== rootId;
+    let count = 0;
+    if (!isRemix) {
+        // A remix count older than 20 seconds is read again.
+        if (Date.now() - (hubCache[rootId]?.at || 0) > 20000) delete hubCache[rootId];
+        const hub = await (p.user_id === me.user_id ? ensureHub(p) : getHub(rootId, p.user_id)).catch(() => null);
+        count = hub?.referenced_count || 0;
+        if (!count) return;
+    }
+    if (!article.isConnected) return;
+    article._hasFamily = true;
+    const play = document.createElement("button");
+    play.type = "button";
+    play.className = "btn small play-remixes";
+    play.title = "Play this pixie's remix family as an animation";
+    play.append(svgIcon("play"), isRemix ? " Family" : ` Remixes (${count})`);
+    play.onclick = () => startFamily(article, play);
+    const row = article.querySelector(".family-row");
+    row.append(play);
+    row.hidden = false;
+    // The maker of the first pixie can arrange its frames.
+    if (!isRemix && p.user_id === me.user_id) {
+        const edit = document.createElement("button");
+        edit.type = "button";
+        edit.className = "btn small frames-edit";
+        edit.title = "Arrange or remove the frames of this remix family";
+        edit.append(svgIcon("grid"), "Frames");
+        edit.onclick = async () => {
+            edit.disabled = true;
+            try {
+                if (await familyFrames(article)) openFramesEditor(article);
+            } finally {
+                edit.disabled = false;
+            }
+        };
+        play.after(edit);
+    }
+    article.querySelector('[data-format="gif"] small').textContent = "16×16 · animation";
+}
+
+// The family's frames (pixie strings), fetched once; null when there is no family.
+async function familyFrames(article) {
+    if (!article._hasFamily) return null;
+    if (!article._familyInfo) {
+        article._familyLoad ||= loadFamily(article).finally(() => (article._familyLoad = null));
+        await article._familyLoad;
+    }
+    return article._familyInfo?.frames.map((f) => f.data.pixels) || null;
+}
+
+async function startFamily(article, button) {
+    button.disabled = true;
+    button.lastChild.textContent = " Loading…";
+    try {
+        await familyFrames(article);
+        if (!article._anim) {
+            button.lastChild.textContent = " No remixes";
+            return;
+        }
+        button.hidden = true; // the badge on the art pauses and plays from now on
+        const row = article.querySelector(".family-row");
+        if (![...row.children].some((c) => !c.hidden)) row.hidden = true;
+        article._anim.wanted = true;
+        playFrames(article._anim);
+    } finally {
+        button.disabled = false;
+    }
 }
 
 async function loadFamily(article) {
@@ -1174,7 +1252,7 @@ async function loadFamily(article) {
     const referencing = hub ? await hubRemixes(hub.record_id) : [];
     const family = new Map();
     for (const r of [root, ...remixes, ...referencing, p]) {
-        if (r?.record_id && r.table?.name === POSTS_TABLE && r.table?.access_group !== "private" && isValid(r.data?.pixels)) {
+        if (r?.record_id && PIXIE_TABLES.includes(r.table?.name) && r.table?.access_group !== "private" && isValid(r.data?.pixels)) {
             family.set(r.record_id, r);
         }
     }
@@ -1188,16 +1266,6 @@ async function loadFamily(article) {
     article._familyInfo = { rootId, root, hub, frames };
     setupFrames(article, p.record_id, frames);
     article.querySelector('[data-format="gif"] small').textContent = `16×16 · ${frames.length} frames`;
-    // The maker of the first pixie can arrange its frames.
-    if (hub && hub.user_id === me.user_id && p.record_id === rootId) {
-        const edit = document.createElement("button");
-        edit.type = "button";
-        edit.className = "btn small frames-edit";
-        edit.title = "Arrange or remove the frames of this remix family";
-        edit.append(svgIcon("grid"), "Frames");
-        edit.onclick = () => openFramesEditor(article);
-        article.querySelector(".actions .remix").before(edit);
-    }
 }
 
 // Remove the animation of a pixie (before it is loaded again).
@@ -1207,14 +1275,23 @@ function resetFrames(article) {
         article._anim.badge.remove();
         article._anim = null;
     }
-    article.querySelector(".frames-edit")?.remove();
+    article._familyInfo = null;
     article.querySelector(".remix-count").hidden = true;
 }
 
 function reloadFamily(rootId) {
     for (const key of Object.keys(queryCache)) if (key.startsWith("family:" + rootId) || key.startsWith("hub:")) delete queryCache[key];
     for (const a of document.querySelectorAll("article.post")) {
-        if (a._family?.rootId === rootId) loadFamily(a);
+        // Families already loaded are read again, and keep playing if they were.
+        if (a._family?.rootId === rootId && a._familyInfo) {
+            const wanted = !!a._anim?.wanted;
+            loadFamily(a).then(() => {
+                if (wanted && a._anim) {
+                    a._anim.wanted = true;
+                    playFrames(a._anim);
+                }
+            });
+        }
     }
 }
 
@@ -1321,7 +1398,7 @@ function setupFrames(article, ownId, frames) {
         i: own,
         timer: 0,
         visible: !!article._visible,
-        userPaused: false,
+        wanted: false, // playing because someone asked (▶ or the badge)
     };
     article._anim = anim;
 
@@ -1337,7 +1414,7 @@ function setupFrames(article, ownId, frames) {
     badge.addEventListener("touchend", stop);
     badge.onclick = (e) => {
         e.stopPropagation();
-        anim.userPaused = !!anim.timer;
+        anim.wanted = !anim.timer;
         if (anim.timer) stopFrames(anim);
         else playFrames(anim);
     };
@@ -1353,7 +1430,6 @@ function setupFrames(article, ownId, frames) {
     count.title = `${remixes} remix${remixes === 1 ? "" : "es"} in this family`;
     count.hidden = false;
     showFrame(anim, own);
-    if (anim.visible && !reducedMotion) playFrames(anim);
 }
 
 function showFrame(anim, n) {
@@ -1409,7 +1485,9 @@ async function openShare(article, p, name) {
     openPanel("sharePanel");
     shareMedia = null;
     const record_id = p.record_id;
-    const frames = article._familyInfo?.frames?.map((f) => f.data.pixels) || [p.data.pixels];
+    $("shareStatus").textContent = article._hasFamily && !article._familyInfo ? "Loading the remixes…" : "";
+    const frames = (await familyFrames(article)) || [p.data.pixels];
+    if (job !== shareJob) return;
     const animated = frames.length > 1;
     const isPrivate = p.table?.access_group === "private";
     const mine = p.user_id === me.user_id;
@@ -1677,7 +1755,7 @@ async function subscribe(user_id) {
 /* ================================================================== views */
 
 function viewTitle(hash) {
-    const headings = { "": "Recent", mostliked: "Most liked", mostcomment: "Most commented", myposts: "My pixies", myprivate: "My private pixies", feed: "Following" };
+    const headings = { "": "Recent", mostliked: "Most liked", mostcomment: "Most commented", myposts: "My pixies", myremixes: "My remixes", myprivate: "My private pixies", feed: "Following" };
     if (headings[hash] !== undefined) return headings[hash];
     if (hash.startsWith("tag=")) return "#" + safeDecode(hash.slice(4));
     if (hash.startsWith("post=")) return "Pixie";
@@ -1728,6 +1806,9 @@ async function initialFetch() {
             return getMostCommentedPost(false);
         case "myposts":
             fetchQuery = { table: { name: POSTS_TABLE, access_group: "authorized" }, index: { name: "$user_id", value: me.user_id } };
+            return getPosts(false);
+        case "myremixes":
+            fetchQuery = { table: { name: REMIX_TABLE, access_group: "authorized" }, index: { name: "$user_id", value: me.user_id } };
             return getPosts(false);
         case "myprivate":
             fetchQuery = { table: { name: POSTS_TABLE, access_group: "private" }, index: { name: "$user_id", value: me.user_id } };
@@ -2312,7 +2393,7 @@ async function deleteMyAccount() {
     leavingOnPurpose = true;
     try {
         for (const [name, access_group] of [
-            [POSTS_TABLE, "authorized"], [POSTS_TABLE, "private"], ["comments", "authorized"], ["likes", "public"], ["avatars", "authorized"],
+            [POSTS_TABLE, "authorized"], [POSTS_TABLE, "private"], [REMIX_TABLE, "authorized"], ["comments", "authorized"], ["likes", "public"], ["avatars", "authorized"],
         ]) {
             await skapi.deleteRecords({ table: { name, access_group } }).catch((err) => {
                 if (err?.code !== "NOT_EXISTS") throw err; // nothing of yours there

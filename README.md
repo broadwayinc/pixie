@@ -28,9 +28,9 @@ It grew out of the photo gallery page of the Skapi HTML template (`templates-ska
 - **Like** (double-tap the art), **comment**, **follow** people, **download** a pixie as a 512×512 PNG, a 16×16 **GIF** (an **animated GIF** when the pixie plays as an animation) or a 16×16 **.ico** icon.
 - **Share** a pixie on Instagram, Threads, TikTok, X and more (`js/share.js`): a square 1080×1080 picture, or for an animated pixie an **MP4 video** (recorded from a canvas with `MediaRecorder`, looping for at least 6 seconds; WebM where MP4 can't be recorded), handed to the phone's share sheet; links for Threads, X, Facebook, Bluesky, Reddit, WhatsApp, Telegram and LINE; or save the video, image or a 320×320 GIF and post it yourself.
 - **Remix** a pixie: it opens in your studio; when you share it, it links back to the original and its maker is notified.
-- **Remix animations**: a pixie that has remixes, or is one, plays its whole remix family **frame by frame**, with the frame number and who drew it (tap to pause). Remix your own pixie to draw the next frame of an animation.
+- **Remix animations**: a pixie with remixes shows **▶ Remixes (N)**; tap it to fetch and play the whole remix family **frame by frame**, with the frame number and who drew it (tap the badge to pause). Nothing is fetched or played until you tap. Remix your own pixie to draw the next frame of an animation.
 - **Frames**: the maker of the first pixie can **reorder** the frames of its family and **remove** anyone's remix from it.
-- **One remix per person in the feeds**: when someone shared several remixes in one family (say, the frames of their animation), the feeds show only their latest one. *My pixies*, your own page and links to a pixie still show all of them, and the animation plays every frame.
+- **Feeds list originals**: remixes are stored in their own table, so Recent, Most liked, Most commented, Following, tags and people's pages show only original pixies, however many remixes there are. Your remixes are under **My remixes**; anyone's remix opens on its own from a notification or a link.
 - **Avatars**: pick one of 12 pre-drawn avatars, **draw your own** in the studio, or keep the little 8×8 critter made from your account.
 - **Activity**: likes, comments, remixes and new followers arrive live while the app is open, and as **push notifications** when it isn't. You also get a push when someone you follow shares a pixie.
 - Accounts: sign up with email confirmation, log in, **continue with Google**, **change your name**, reset a forgotten password, **delete your account**, recover a removed account, or just **try it as a guest**.
@@ -145,11 +145,12 @@ Every backend feature is a Skapi call from the browser. Here is what pixie uses,
 
 ### Database: `js/app.js`
 
-pixie keeps everything in five tables:
+pixie keeps everything in six tables:
 
 | Table | Access group | Holds |
 | --- | --- | --- |
-| `pixies` | `authorized` (any logged-in user), or `private` | `data: { pixels, description, remix_of?, remix_root? }` and tags. `remix_of` is `{ record_id, user_id, name }` of the pixie it started from; `remix_root` is the first pixie of the remix family, also set as the index `remix_root`. |
+| `pixies` | `authorized` (any logged-in user), or `private` | Original pixies: `data: { pixels, description }` and tags. Private remixes are here too, and remixes shared before the `remixes` table existed. |
+| `remixes` | `authorized` | Public remixes: `data: { pixels, description, remix_of, remix_root, remix_hub }`, the index `remix_root = <first pixie's id>`, and a reference to the family's remix hub. `remix_of` is `{ record_id, user_id, name }` of the pixie it started from. Kept apart so the feeds, which read `pixies`, list originals only. |
 | `likes` | `public` | Empty records that **reference** a pixie. |
 | `comments` | `authorized` | `data: { comment }` with the index `comment.<pixie id>`. |
 | `remix_hubs` | `authorized` | One per public pixie, made by its maker: `data: { root, order }`, index `root = <pixie id>`. Public remixes **reference** it; `order` is the frame order. |
@@ -199,7 +200,7 @@ It demonstrates these features:
   });
   ```
 
-  A public remix is posted with `reference: hubId` and `index: { name: "remix_root", value: pixieId }`. `getRecords({ table, reference: hubId })` (plus the `remix_root` index, for remixes made before hubs existed) gives the family; the hub's `data.order`, updated with `postRecord(data, { record_id })`, gives the frame order; and the maker removes a remix with `deleteRecords()`. A hub is accepted only if it belongs to the pixie's maker. It is never deleted with its pixie, because deleting it would delete every remix that references it.
+  A public remix is posted to the table `remixes` with `reference: hubId` and `index: { name: "remix_root", value: pixieId }`. The hub's `referenced_count` tells, with one small lookup, whether a pixie has remixes (the **▶ Remixes (N)** button); tapping it fetches the family, page by page: `getRecords({ reference: hubId })` (every table) plus the `remix_root` index in `remixes` and `pixies` (for remixes made before hubs existed); the hub's `data.order`, updated with `postRecord(data, { record_id })`, gives the frame order; and the maker removes a remix with `deleteRecords()`. A hub is accepted only if it belongs to the pixie's maker. It is never deleted with its pixie, because deleting it would delete every remix that references it.
 - **Tags.** `getRecords({ table, tag })` gives the `#tag` views.
 - **Paging.** `getRecords(query, { ascending: false, limit: 6, fetchMore })` with `endOfList` drives infinite scroll, and the comments' *Show more* button.
 - **Updating and deleting.** `postRecord(data, { record_id })` changes your avatar; `deleteRecords({ record_id })` deletes pixies, likes (unlike) and your avatar.

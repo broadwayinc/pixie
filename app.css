@@ -504,7 +504,13 @@ svg {
     margin: 0 -6px 2px;
 }
 
-.actions .btn.small { margin-right: 6px; }
+.actions { flex-wrap: wrap; row-gap: 8px; }
+.actions .btn.small { margin-right: 6px; white-space: nowrap; }
+
+/* ▶ Remixes and Frames, under the actions */
+.family-row { display: flex; flex-wrap: wrap; gap: 10px; margin: 2px 0 12px; }
+.family-row .btn.small { white-space: nowrap; }
+.family-row .play-remixes svg { width: 10px; height: 10px; }
 
 .download-menu {
     display: flex;
