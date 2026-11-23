@@ -269,7 +269,7 @@ The app is static files, so it can be served by Skapi's website hosting (HTTPS, 
 
 ## Libraries
 
-- [skapi-js](https://www.npmjs.com/package/skapi-js) 2.4.2, from a CDN.
+- [skapi-js](https://www.npmjs.com/package/skapi-js) 2.5.0, from a CDN.
 - Google Fonts: [Press Start 2P](https://fonts.google.com/specimen/Press+Start+2P) and [Pixelify Sans](https://fonts.google.com/specimen/Pixelify+Sans).
 
 Nothing else: the editor, the palette and the rendering are plain JavaScript and `<canvas>`.
