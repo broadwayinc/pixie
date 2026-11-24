@@ -425,6 +425,25 @@ function openStudio({ pixels = null, remix = null } = {}) {
     studioChanged();
 }
 
+// Empty the canvas and forget the draft on this device.
+function clearDraft() {
+    clearTimeout(draftTimer);
+    editor.load(encode(emptyPixels()));
+    remixOf = null;
+    clearTimeout(draftTimer);
+    try { localStorage.removeItem(draftKey()); } catch (err) { /* storage blocked */ }
+}
+
+/*
+    Closing the studio with a drawing that isn't shared asks what to do with it: keep it as a draft on this
+    device (it comes back next time), or delete it. An empty canvas, or avatar mode, just closes.
+*/
+function requestCloseStudio() {
+    if (studioMode === "avatar" || !editor || editor.isEmpty()) return closeStudio();
+    $("draftPreview").src = toDataURL(editor.value);
+    openPanel("draftDialog");
+}
+
 function closeStudio() {
     leaveAvatarMode();
     $("studioSheet").hidden = true;
@@ -541,10 +560,9 @@ async function postPixie(event) {
         // Families, remix lists and remix counts changed: read them again.
         for (const key of Object.keys(queryCache)) delete queryCache[key];
         for (const key of Object.keys(hubCache)) delete hubCache[key];
-        // A fresh canvas for the next one.
-        editor.load(encode(emptyPixels()));
-        remixOf = null;
-        try { localStorage.removeItem(draftKey()); } catch (err) { /* storage blocked */ }
+        // A fresh canvas for the next one, and no draft left behind (a save still pending from the last stroke
+        // would bring the shared drawing back).
+        clearDraft();
         form.reset();
         closeCompose();
         closeStudio();
@@ -2570,7 +2588,19 @@ $("deleteAccountButton").onclick = deleteMyAccount;
 /* ================================================================== wiring */
 
 $("openStudioButton").onclick = () => openStudio();
-$("closeStudioButton").onclick = closeStudio;
+$("closeStudioButton").onclick = requestCloseStudio;
+$("keepDraftButton").onclick = () => {
+    closePanels();
+    closeStudio();
+    toast("Draft kept on this device ✏️");
+};
+$("deleteDraftButton").onclick = () => {
+    closePanels();
+    clearDraft();
+    closeStudio();
+    toast("Draft deleted");
+};
+$("cancelCloseButton").onclick = () => closePanels();
 $("nextButton").onclick = () => (studioMode === "avatar" ? saveAvatarFromStudio() : openCompose());
 $("drawAvatarButton").onclick = openAvatarStudio;
 $("saveFramesButton").onclick = saveFrameOrder;
@@ -2640,12 +2670,13 @@ for (const p of document.querySelectorAll(".panel")) {
 document.addEventListener("keydown", (e) => {
     if (e.key === "Escape") {
         if (document.querySelector(".download-menu:not([hidden])")) closeDownloadMenus();
+        else if (!$("draftDialog").hidden) closePanels();
         else if (!$("composeSheet").hidden) closeCompose();
-        else if (!$("studioSheet").hidden) closeStudio();
+        else if (!$("studioSheet").hidden) requestCloseStudio();
         else closePanels();
         return;
     }
-    if ($("studioSheet").hidden || !$("composeSheet").hidden || !editor) return;
+    if ($("studioSheet").hidden || !$("composeSheet").hidden || !$("draftDialog").hidden || !editor) return;
     if (e.target.closest?.("input, textarea, select, [contenteditable]")) return;
     const key = e.key.toLowerCase();
     if ((e.ctrlKey || e.metaKey) && key === "z") {

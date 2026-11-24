@@ -217,6 +217,20 @@
         </div>
     </section>
 
+    <!-- ===================================================== closing the studio with a drawing (app.js: requestCloseStudio()) -->
+    <section class="panel draft-dialog" id="draftDialog" hidden aria-label="Keep your drawing?">
+        <div class="panel-card dialog-card" role="dialog" aria-modal="true" aria-labelledby="draftDialogTitle">
+            <h2 id="draftDialogTitle">Keep your drawing?</h2>
+            <div class="dialog-art"><img id="draftPreview" alt="Your drawing"></div>
+            <p class="hint">It isn't shared yet. Keep it as a draft on this device to finish it later, or delete it.</p>
+            <div class="dialog-actions">
+                <button type="button" class="btn primary" id="keepDraftButton">Keep draft</button>
+                <button type="button" class="btn danger" id="deleteDraftButton"><svg><use href="#i-trash"/></svg> Delete draft</button>
+            </div>
+            <button type="button" class="link-btn dialog-cancel" id="cancelCloseButton">Keep drawing</button>
+        </div>
+    </section>
+
     <!-- ===================================================== compose -->
     <section class="sheet compose" id="composeSheet" hidden aria-label="New pixie">
         <header class="sheet-head">
