@@ -260,7 +260,7 @@ The service worker shows both kinds of push. From `postRealtime()` it gets `{ ti
 
 The app is static files, so it can be served by Skapi's website hosting (HTTPS, which push needs) or any static host.
 
-**Before hosting this version**: every page loads skapi-js **2.6.0** from jsDelivr, which is not published yet, and remix unlinking needs the Skapi backend with `can_modify_referencing_records`. Host it only after the backend is deployed and `https://cdn.jsdelivr.net/npm/skapi-js@2.6.0/dist/skapi.js` resolves (otherwise `skapi` is undefined and every page, login too, breaks). The Terms of Service (section 5) already describe unlinking.
+**Remix unlinking** needs the Skapi backend with `can_modify_referencing_records`. Until it is deployed the backend ignores the setting, so new hubs post fine and removing a remix falls back to deleting it. Every page loads skapi-js **2.7.0** from jsDelivr. The Terms of Service (section 5) already describe unlinking.
 
 ---
 
@@ -286,7 +286,7 @@ The app is static files, so it can be served by Skapi's website hosting (HTTPS, 
 
 ## Libraries
 
-- [skapi-js](https://www.npmjs.com/package/skapi-js) 2.6.0, from a CDN (2.6.0 sends `source.can_modify_referencing_records`; 2.5.0 drops it).
+- [skapi-js](https://www.npmjs.com/package/skapi-js) 2.7.0, from a CDN (2.6.0 or later sends `source.can_modify_referencing_records`; 2.5.0 drops it).
 - Google Fonts: [Press Start 2P](https://fonts.google.com/specimen/Press+Start+2P) and [Pixelify Sans](https://fonts.google.com/specimen/Pixelify+Sans).
 
 Nothing else: the editor, the palette and the rendering are plain JavaScript and `<canvas>`.
