@@ -897,7 +897,7 @@ async function createArticleContent(p) {
     article.querySelector(".description").textContent = p.data?.description || "";
 
     // A pixie with remixes, or a remix, plays its remix family as an animation (loaded when it comes into view).
-    const familyRoot = p.data?.remix_root || p.data?.remix_of?.record_id || record_id;
+    const familyRoot = familyRootOf(p);
     if (!isPrivate) watchFamily(article, p, familyRoot);
     if (!p.data?.description) article.querySelector(".caption").classList.add("no-text");
 
@@ -917,7 +917,7 @@ async function createArticleContent(p) {
     article.querySelector(".remix").onclick = () => {
         if (editor && !editor.isEmpty() && editor.value !== pixels && !confirm("Start a remix? Your current drawing stays one undo away.")) return;
         // Remixing your own pixie is how you make the next frame of an animation.
-        const root = p.data?.remix_root || p.data?.remix_of?.record_id || record_id;
+        const root = familyRootOf(p);
         openStudio({ pixels, remix: { record_id, user_id: p.user_id, name, root } });
     };
     article.querySelector(".share").onclick = () => openShare(article, p, name);
@@ -1044,9 +1044,10 @@ async function createArticleContent(p) {
 /*
     Every public pixie that can start a remix family has a "remix hub": a record in the table "remix_hubs",
     made by the pixie's maker, with data { root, order } and the index root = <the pixie's record id>.
-    - Public remixes reference the hub. The hub has can_remove_referencing_records, so its owner can remove
-      any remix of the family, and referencing_index_restrictions, so only records of this family (index
-      remix_root = root) can reference it.
+    - Public remixes reference the hub. The hub has can_modify_referencing_records, so its owner can take
+      someone's remix out of the family without deleting it (see removeFrame()), can_remove_referencing_records,
+      so its owner can still delete a remix, and referencing_index_restrictions, so only records of this
+      family (index remix_root = root) can reference it.
     - order is the order of the frames, set by the hub's owner in the Frames editor.
     A hub is looked up by its index and must belong to the maker of the first pixie, so nobody else's record
     can act as a family's hub.
@@ -1079,19 +1080,56 @@ async function ensureHub(root) {
     if (!root?.record_id) return null;
     const found = await getHub(root.record_id, root.user_id);
     if (found || root.user_id !== me.user_id || root.table?.access_group === "private") return found;
-    const hub = await skapi.postRecord({ root: root.record_id, order: [] }, {
+    const post = (source) => skapi.postRecord({ root: root.record_id, order: [] }, {
         table: HUB_TABLE,
         index: { name: "root", value: root.record_id },
         source: {
             can_remove_referencing_records: true,
             referencing_index_restrictions: [{ name: "remix_root", value: root.record_id, condition: "=" }],
+            ...source,
         },
     });
+    let hub;
+    try {
+        // Unlinking needs the setting now: only the project owner can turn it on for a hub that already exists.
+        hub = await post({ can_modify_referencing_records: true });
+    } catch (err) {
+        // A backend that doesn't know the setting refuses it before writing anything: the hub is made without it,
+        // and its owner deletes remixes instead of unlinking them, as before.
+        if (err?.code !== "INVALID_PARAMETER" && !String(err?.message).includes("can_modify_referencing_records")) throw err;
+        console.warn("Remix hub made without can_modify_referencing_records", err);
+        hub = await post({});
+    }
     hubCache[root.record_id] = Object.assign(Promise.resolve(hub), { at: Date.now() });
     return hub;
 }
 
 /* ================================================================== remix families */
+
+/*
+    A remix the family's maker took out of the family (removeFrame()) carries data.remix_unlinked. It keeps its
+    art, caption and credit (remix_of), and starts a family of its own: remixes of it join that one.
+*/
+function isUnlinked(p) {
+    return !!p?.data?.remix_unlinked;
+}
+
+// The record id of the first pixie of p's family.
+function familyRootOf(p) {
+    if (isUnlinked(p)) return p.record_id;
+    return p.data?.remix_root || p.data?.remix_of?.record_id || p.record_id;
+}
+
+/*
+    Is r a frame of the family of rootId? The first pixie is. A remix is while it still carries the family's
+    index (remix_root = rootId) or references its hub, and was not unlinked. The queries already ask for exactly
+    that; checking the records again keeps a remix out that changed after a query was cached.
+*/
+function inFamily(r, rootId, hubId) {
+    if (r.record_id === rootId) return true;
+    if (isUnlinked(r)) return false;
+    return (r.index?.name === "remix_root" && r.index.value === rootId) || (!!hubId && r.reference === hubId);
+}
 
 const postTime = (r) => r.uploaded || r.updated || 0;
 const MAX_FAMILY = 1000; // frames read for one animation at most
@@ -1147,7 +1185,7 @@ function hubRemixes(hubId) {
     existed are still in "pixies": they are skipped here the same way.
 */
 function hiddenInFeed(p) {
-    const isRemix = p.table?.name === REMIX_TABLE || !!p.data?.remix_root;
+    const isRemix = p.table?.name === REMIX_TABLE || !!p.data?.remix_root || isUnlinked(p);
     if (!isRemix || p.table?.access_group === "private") return false;
     const view = location.hash.slice(1);
     if (["myposts", "myprivate", "myremixes"].includes(view) || view.startsWith("post=")) return false;
@@ -1305,7 +1343,10 @@ async function loadFamily(article) {
     const family = new Map();
     for (const r of [root, ...remixes, ...referencing, p]) {
         if (r?.record_id && PIXIE_TABLES.includes(r.table?.name) && r.table?.access_group !== "private" && isValid(r.data?.pixels)) {
-            family.set(r.record_id, r);
+            // The pixie on screen joins its family as before (remixes older than the index have only remix_of),
+            // unless it was unlinked; the records the queries found must still belong to the family.
+            const member = r === p ? r.record_id === rootId || !isUnlinked(r) : inFamily(r, rootId, hub?.record_id);
+            if (member) family.set(r.record_id, r);
         }
     }
     resetFrames(article);
@@ -1414,19 +1455,63 @@ function moveFrame(n, d) {
     renderFramesEditor();
 }
 
-// The hub's owner removes someone's remix: it is deleted (can_remove_referencing_records).
+/*
+    The hub's owner takes a remix out of the family.
+    - Someone else's remix is unlinked, not deleted. The hub has can_modify_referencing_records, so its owner may
+      update a remix that references it, and change only its data, tags and index, or drop the reference. The
+      update drops the reference to the hub (reference: null) and the remix_root index, and moves remix_root and
+      remix_hub in its data to remix_unlinked, so no query and no check (inFamily()) counts it in the family
+      again. Its maker keeps it, with its art, caption and credit.
+    - A hub made before that setting existed (only the project owner can turn it on for an existing hub), a
+      remix that doesn't reference the hub, or a backend that refuses the update: the remix is deleted instead
+      (can_remove_referencing_records), as it always was.
+    - The owner's own frames are deleted, as before.
+*/
 async function removeFrame(f) {
+    const { rootId, hub } = framesEdit;
     const who = authorLabel(await getUserInfo(f.user_id));
-    if (!confirm(`Remove this remix by ${who}? It is deleted for everyone.`)) return;
+    const mine = f.user_id === me.user_id;
+    const canUnlink = !mine && !!hub?.source?.can_modify_referencing_records && f.reference === hub.record_id;
+    let unlinked = false;
+    let fellBack = false;
+    if (canUnlink) {
+        if (!confirm(`Remove this remix by ${who} from your family? It stays on ${who}'s page, it just isn't a frame here anymore.`)) return;
+        try {
+            await unlinkRemix(f, rootId, hub.record_id);
+            unlinked = true;
+        } catch (err) {
+            console.warn("Remix not unlinked", err);
+            if (!confirm(`This remix couldn't be unlinked (${err.message}). Delete it for everyone instead?`)) return;
+            fellBack = true;
+        }
+    } else if (!confirm(mine
+        ? `Remove this remix by ${who}? It is deleted for everyone.`
+        : `Remove this remix by ${who}? This family can't unlink remixes, so it is deleted for everyone.`)) {
+        return;
+    }
     try {
-        await skapi.deleteRecords({ record_id: f.record_id });
+        if (!unlinked) {
+            await skapi.deleteRecords({ record_id: f.record_id });
+            document.getElementById("post-" + f.record_id)?.remove();
+        }
         framesEdit.list = framesEdit.list.filter((x) => x !== f);
-        document.getElementById("post-" + f.record_id)?.remove();
         renderFramesEditor();
-        toast("Remix removed");
+        // The animations on screen are read again without it.
+        reloadFamily(rootId);
+        toast(unlinked ? "Remix unlinked: it stays on its maker's page"
+            : mine ? "Remix removed"
+            : fellBack ? "Couldn't unlink it, so the remix was deleted"
+            : "Remix deleted: this family can't unlink remixes yet");
     } catch (err) {
         alert(err.message);
     }
+}
+
+// Take someone's remix out of the family (see removeFrame()). The rest of its data stays as its maker shared it.
+function unlinkRemix(f, rootId, hubId) {
+    const { remix_root, remix_hub, ...data } = f.data || {};
+    data.remix_unlinked = { root: remix_root || rootId, hub: remix_hub || hubId };
+    return skapi.postRecord(data, { record_id: f.record_id, reference: null, index: null });
 }
 
 async function saveFrameOrder() {

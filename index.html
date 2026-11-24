@@ -52,7 +52,7 @@
             "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
         }
     </script>
-    <script src="https://cdn.jsdelivr.net/npm/skapi-js@2.5.0/dist/skapi.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/skapi-js@2.6.0/dist/skapi.js"></script>
     <script src="service.js"></script>
     <script src="js/google-login.js"></script>
 </head>
@@ -286,7 +286,7 @@
                 <span class="spacer"></span>
                 <button type="button" class="icon-btn" data-close-panel aria-label="Close"><svg><use href="#i-close"/></svg></button>
             </header>
-            <p class="hint">Your pixie and its remixes play in this order. Move frames up or down, or remove a remix from your family (it is deleted for everyone).</p>
+            <p class="hint">Your pixie and its remixes play in this order. Move frames up or down, or remove a remix from your family. Someone else's remix leaves the family and stays on their page (in families made before unlinking existed, it is deleted); your own is deleted.</p>
             <ol class="frame-list" id="frameList"></ol>
             <button type="button" class="btn primary wide" id="saveFramesButton">Save order</button>
         </div>
