@@ -40,6 +40,7 @@ const fetchMoreButton = $("fetchMoreButton");
 const postButton = $("postButton");
 
 let me = null;
+let shownView = null; // the hash of the list on screen (set by initialFetch(); see the back button)
 
 /* ================================================================== small helpers */
 
@@ -622,6 +623,8 @@ function showEmptyMessage(text) {
 function emptyTextForView() {
     const hash = location.hash.slice(1);
     if (hash === "feed") return "Nothing here yet. Follow people and their new pixies show up here.";
+    if (hash === "mostliked") return "None of your pixies has a like yet. Share one and see who likes it!";
+    if (hash === "mostcomment") return "None of your pixies has a comment yet.";
     if (hash === "myremixes") return "No remixes yet. Tap Remix on any pixie to make your own version.";
     if (hash === "myposts" || hash === "myprivate") return "No pixies yet. Tap the brush to paint your first one!";
     return "No pixies yet. Be the first: tap the brush and paint something! 🖌️";
@@ -750,38 +753,58 @@ async function getFeed(fetchMore = true) {
 }
 
 /*
-    Most commented pixies: skapi.getIndexes() lists the index names under "comment." ordered by their totals.
-    The record id of each pixie is taken from the index name.
+    My most liked and My most commented list your own public pixies, the most liked (or commented) first. Skapi orders
+    a query by one index, and the owner is an index too, so "mine, by likes" can't be asked in one query: all
+    your public pixies are read (100 a page), and sorted here. Likes are on each record (referenced_count);
+    comments are counted per pixie, like the count under each pixie. Ties: newest first. Pixies with no like
+    (or no comment) are left out. The sorted list is kept for "Load more", 6 at a time.
 */
-async function getMostCommentedPost(fetchMore = true) {
+let ranked = null; // { by, list }
+
+async function getMyRanked(by, fetchMore = true) {
     fetchMoreButton.disabled = true;
     const requestGeneration = ++fetchGeneration;
-    let commentIndex;
-    try {
-        commentIndex = await skapi.getIndexes(
-            { table: "comments", index: "comment.", order: { by: "total_bool" } },
-            { ascending: false, limit: 6, fetchMore }
-        );
-    } catch (err) {
-        console.error(err);
-        if (requestGeneration === fetchGeneration) showFetchError(err, fetchMore, () => getMostCommentedPost());
-        return;
+    if (!fetchMore || ranked?.by !== by) {
+        try {
+            const mine = await fetchAll({ table: { name: POSTS_TABLE, access_group: "authorized" }, index: { name: "$user_id", value: me.user_id } }, Infinity);
+            const counts = by === "likes" ? mine.map((p) => p.referenced_count || 0) : await commentCounts(mine);
+            if (requestGeneration !== fetchGeneration) return;
+            ranked = {
+                by,
+                list: mine.map((p, n) => ({ p, n: counts[n] }))
+                    .filter((r) => r.n > 0)
+                    .sort((a, b) => b.n - a.n || postTime(b.p) - postTime(a.p))
+                    .map((r) => r.p),
+            };
+        } catch (err) {
+            console.error(err);
+            if (requestGeneration === fetchGeneration) showFetchError(err, fetchMore, () => getMyRanked(by, false));
+            return;
+        }
+        fetchMore = false;
     }
-    if (requestGeneration !== fetchGeneration) return;
-    // A pixie that was deleted keeps its comments' index, so its getRecords() finds nothing (null).
-    // Comments on records of other tables are skipped by createArticleContent() (null too).
-    const posts = await Promise.all(commentIndex.list.map((i) =>
-        skapi.getRecords({ record_id: i.index.slice("comment.".length) })
-            .then((res) => res.list[0])
-            .catch((err) => {
-                console.error(err);
-                return null;
-            })
-    ));
-    const articles = await Promise.all(posts.map((p) => (p ? createArticleContent(p) : null)));
+    const page = ranked.list.splice(0, PAGE);
+    const articles = await Promise.all(page.map((p) => createArticleContent(p)));
     if (!showPosts(articles, fetchMore, requestGeneration)) return;
-    setMore(commentIndex.endOfList, () => getMostCommentedPost());
-    if (!articles.some(Boolean) && !commentIndex.endOfList) return getMostCommentedPost(true);
+    const endOfList = !ranked.list.length;
+    setMore(endOfList, () => getMyRanked(by));
+    if (!articles.some(Boolean) && !endOfList) return getMyRanked(by, true);
+}
+
+// The number of comments of each pixie (0 when it can't be read), 10 lookups at a time.
+async function commentCounts(posts) {
+    const counts = [];
+    for (let i = 0; i < posts.length; i += 10) {
+        counts.push(...await Promise.all(posts.slice(i, i + 10).map((p) =>
+            skapi.getIndexes({ table: "comments", index: "comment." + p.record_id })
+                .then((info) => info.list[0]?.number_of_records || 0)
+                .catch((err) => {
+                    console.warn(err);
+                    return 0;
+                })
+        )));
+    }
+    return counts;
 }
 
 // One pixie, for links from notifications (#post=<record_id>).
@@ -1188,7 +1211,7 @@ function hiddenInFeed(p) {
     const isRemix = p.table?.name === REMIX_TABLE || !!p.data?.remix_root || isUnlinked(p);
     if (!isRemix || p.table?.access_group === "private") return false;
     const view = location.hash.slice(1);
-    if (["myposts", "myprivate", "myremixes"].includes(view) || view.startsWith("post=")) return false;
+    if (["myposts", "myprivate", "myremixes", "mostliked", "mostcomment"].includes(view) || view.startsWith("post=")) return false;
     if (view === "user=" + encodeURIComponent(me.user_id)) return false;
     return true;
 }
@@ -1976,7 +1999,7 @@ async function subscribe(user_id) {
 /* ================================================================== views */
 
 function viewTitle(hash) {
-    const headings = { "": "Recent", mostliked: "Most liked", mostcomment: "Most commented", myposts: "My pixies", myremixes: "My remixes", myprivate: "My private pixies", feed: "Following" };
+    const headings = { "": "Recent", mostliked: "My most liked", mostcomment: "My most commented", myposts: "My pixies", myremixes: "My remixes", myprivate: "My private pixies", feed: "Following" };
     if (headings[hash] !== undefined) return headings[hash];
     if (hash.startsWith("tag=")) return "#" + safeDecode(hash.slice(4));
     if (hash.startsWith("post=")) return "Pixie";
@@ -2007,10 +2030,11 @@ async function initialFetch() {
     // App shortcuts and notifications open these; they are actions, not views.
     const action = location.hash.slice(1);
     if (["paint", "camera", "activity", "profile", "shared"].includes(action)) {
-        history.replaceState(null, "", location.pathname + location.search);
+        history.replaceState(history.state, "", location.pathname + location.search); // keeps the entry's number (see the back button)
         runAction(action);
     }
     const hash = location.hash.slice(1);
+    shownView = hash;
     $("postsHeading").textContent = viewTitle(hash);
     $("viewExtra").replaceChildren();
     markCurrentTab(hash);
@@ -2020,11 +2044,9 @@ async function initialFetch() {
 
     switch (hash) {
         case "mostliked":
-            // Ordered by the reserved index $referenced_count: the number of likes.
-            fetchQuery = { table: { name: POSTS_TABLE, access_group: "authorized" }, index: { name: "$referenced_count", value: 0, condition: ">" } };
-            return getPosts(false);
+            return getMyRanked("likes", false);
         case "mostcomment":
-            return getMostCommentedPost(false);
+            return getMyRanked("comments", false);
         case "myposts":
             fetchQuery = { table: { name: POSTS_TABLE, access_group: "authorized" }, index: { name: "$user_id", value: me.user_id } };
             return getPosts(false);
@@ -2524,6 +2546,17 @@ async function openSharedPicture() {
 
 /* ================================================================== panels */
 
+// Close what is on top, the way Escape and the back button do. False when nothing was open.
+function closeTopLayer() {
+    if (document.querySelector(".download-menu:not([hidden])")) closeDownloadMenus();
+    else if (!$("draftDialog").hidden) closePanels();
+    else if (!$("composeSheet").hidden) closeCompose();
+    else if (!$("studioSheet").hidden) requestCloseStudio();
+    else if (document.querySelector(".panel:not([hidden])")) closePanels();
+    else return false;
+    return true;
+}
+
 function openPanel(id) {
     closePanels();
     $(id).hidden = false;
@@ -2670,6 +2703,38 @@ async function deleteMyAccount() {
 
 $("deleteAccountButton").onclick = deleteMyAccount;
 
+/* ================================================================== the back button */
+
+/*
+    Back never closes the installed app. It closes what is open on top (a menu, a dialog, the compose sheet, the
+    studio, a panel); else it brings a pixie, a person's page or another list back to Recent; on Recent it does
+    nothing in the installed app, and in a browser tab it leaves pixie for the page before it.
+    pixie keeps one history entry above the one it opened on. A back press lands on an older entry (popstate),
+    pixie does one of the above, and puts an entry on top again, so there is always one to go back from.
+    The hashchange of that landing finds the shown view already in the address and loads nothing.
+
+    Every entry carries a number in its state ({ n }), counting up. A tab or a link (a new hash) fires popstate
+    too, on a new entry with no state yet: it gets the next number. Landing on a lower number is a back press.
+    Arriving at pixie starts at 0 (a reload keeps its number), so the page before pixie is n + 1 entries back.
+*/
+let historyIndex = history.state?.n ?? 0;
+history.scrollRestoration = "manual"; // landing on an older entry must not scroll the list
+history.replaceState({ n: historyIndex }, "");
+history.pushState({ n: ++historyIndex }, "");
+window.addEventListener("popstate", (e) => {
+    const n = e.state?.n;
+    if (n === undefined) return history.replaceState({ n: ++historyIndex }, "");
+    if (n >= historyIndex) {
+        historyIndex = n; // forward
+        return;
+    }
+    const closed = closeTopLayer();
+    const view = closed ? shownView ?? "" : "";
+    if (!closed && !shownView && !isStandalone()) return history.go(-(n + 1));
+    history.pushState({ n: ++historyIndex }, "", location.pathname + location.search + (view ? "#" + view : ""));
+    if (view !== shownView) initialFetch();
+});
+
 /* ================================================================== wiring */
 
 $("openStudioButton").onclick = () => openStudio();
@@ -2754,11 +2819,7 @@ for (const p of document.querySelectorAll(".panel")) {
 // Keyboard: Escape closes; in the studio, the usual pixel editor shortcuts.
 document.addEventListener("keydown", (e) => {
     if (e.key === "Escape") {
-        if (document.querySelector(".download-menu:not([hidden])")) closeDownloadMenus();
-        else if (!$("draftDialog").hidden) closePanels();
-        else if (!$("composeSheet").hidden) closeCompose();
-        else if (!$("studioSheet").hidden) requestCloseStudio();
-        else closePanels();
+        closeTopLayer();
         return;
     }
     if ($("studioSheet").hidden || !$("composeSheet").hidden || !$("draftDialog").hidden || !editor) return;
@@ -2786,7 +2847,10 @@ document.addEventListener("keydown", (e) => {
         editor.shift(...d);
     }
 });
-window.addEventListener("hashchange", initialFetch);
+// A back press (see the back button above) lands on an older entry and puts the shown view back: nothing to load.
+window.addEventListener("hashchange", () => {
+    if (location.hash.slice(1) !== shownView) initialFetch();
+});
 // Back online: reload the feed if it could not load.
 window.addEventListener("online", () => {
     if (!section_posts.querySelector("article")) initialFetch();

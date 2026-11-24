@@ -23,7 +23,8 @@ It grew out of the photo gallery page of the Skapi HTML template (`templates-ska
 - Keyboard: `B` pen, `E` eraser, `F` fill, `I` picker, `M` mirror, `G` grid, `Ctrl+Z` / `Ctrl+Shift+Z` undo / redo, `Shift+arrows` nudge.
 
 **The social app**
-- A feed of pixies: **Recent**, **Most liked**, **Most commented**, **Following**, **My pixies**, **Private**, and pixies by tag or by person.
+- A feed of pixies: **Recent**, **My most liked**, **My most commented**, **Following**, **My pixies**, **Private**, and pixies by tag or by person. **My most liked** and **My most commented** rank your own pixies: the ones with likes (or comments), the most first.
+- **Back button**: it never closes the installed app. It closes what is open (a menu, a dialog, the studio, a panel), else it brings a pixie, a person's page or another list back to **Recent**. On Recent it does nothing in the installed app; in a browser tab it leaves pixie for the page before it.
 - **Share** a pixie with a caption and tags, publicly or **privately** (only you can see it).
 - **Like** (double-tap the art), **comment**, **follow** people, **download** a pixie as a 512×512 PNG, a 16×16 **GIF** (an **animated GIF** when the pixie plays as an animation) or a 16×16 **.ico** icon.
 - **Share** a pixie on Instagram, Threads, TikTok, X and more (`js/share.js`): a square 1080×1080 picture, or for an animated pixie an **MP4 video** (recorded from a canvas with `MediaRecorder`, looping for at least 6 seconds; WebM where MP4 can't be recorded), handed to the phone's share sheet; links for Threads, X, Facebook, Bluesky, Reddit, WhatsApp, Telegram and LINE; or save the video, image or a 320×320 GIF and post it yourself.
@@ -31,7 +32,7 @@ It grew out of the photo gallery page of the Skapi HTML template (`templates-ska
 - **Remix** a pixie: it opens in your studio; when you share it, it links back to the original and its maker is notified.
 - **Remix animations**: a pixie with remixes shows **▶ Remixes (N)**; tap it to fetch and play the whole remix family **frame by frame**, with the frame number and who drew it (tap the badge to pause). Nothing is fetched or played until you tap. Remix your own pixie to draw the next frame of an animation.
 - **Frames**: the maker of the first pixie can **reorder** the frames of its family and **remove** anyone's remix from it. Someone else's remix is **unlinked**, not deleted: it leaves the family and stays on its maker's page (in families whose hub was made before unlinking existed, it is deleted, as before).
-- **Feeds list originals**: remixes are stored in their own table, so Recent, Most liked, Most commented, Following, tags and people's pages show only original pixies, however many remixes there are. Your remixes are under **My remixes**; anyone's remix opens on its own from a notification or a link.
+- **Feeds list originals**: remixes are stored in their own table, so Recent, Following, tags and people's pages show only original pixies, however many remixes there are. Your remixes are under **My remixes**; anyone's remix opens on its own from a notification or a link.
 - **Avatars**: pick one of 12 pre-drawn avatars, **draw your own** in the studio, or keep the little 8×8 critter made from your account.
 - **Activity**: likes, comments, remixes and new followers arrive live while the app is open, and as **push notifications** when it isn't. You also get a push when someone you follow shares a pixie.
 - Accounts: sign up with email confirmation, log in, **continue with Google**, **change your name**, reset a forgotten password, **delete your account**, recover a removed account, or just **try it as a guest**.
@@ -186,10 +187,10 @@ It demonstrates these features:
 - **References.** A like is `postRecord(null, { table: { name: "likes", access_group: "public" }, reference: pixieId })`. Because the pixie has `prevent_multiple_referencing`, each user can like it once. The pixie's `referenced_count` is its number of likes.
 - **Reserved indexes.**
   - `$user_id` gives *My pixies*, *Private*, a person's pixies, and "did I like this?" (likes by me referencing a pixie).
-  - `$referenced_count > 0` gives *Most liked*.
+  - *My most liked* is your pixies (`$user_id`, every page) sorted in the app by `referenced_count`: a query is ordered by one index, so "mine" and "by likes" can't be asked together.
 - **Custom indexes and `getIndexes()`.** Comments are indexed `comment.<pixie id>`:
   - `getIndexes({ table: "comments", index: "comment." + id })` gives the comment count;
-  - `getIndexes({ table: "comments", index: "comment.", order: { by: "total_bool" } })` lists pixies by number of comments, which is *Most commented*.
+  - *My most commented* is your pixies sorted in the app by that count (read for each of your pixies, 10 at a time).
 - **References with owner moderation: the remix hub.** A pixie's references are its likes, so remixes reference a separate record instead: the pixie's **remix hub** (table `remix_hubs`), made by the pixie's maker when they share it:
 
   ```js
