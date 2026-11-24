@@ -1186,15 +1186,15 @@ async function probeFamily(article) {
     }
     if (!article.isConnected) return;
     article._hasFamily = true;
-    const play = document.createElement("button");
-    play.type = "button";
-    play.className = "btn small play-remixes";
-    play.title = "Play this pixie's remix family as an animation";
-    play.append(svgIcon("play"), isRemix ? " Family" : ` Remixes (${count})`);
-    play.onclick = () => startFamily(article, play);
-    const row = article.querySelector(".family-row");
-    row.append(play);
-    row.hidden = false;
+    // The play button lives on the art: "▶ Remixes (N)" until the family is loaded, then the same button is the
+    // frame badge that pauses and plays.
+    article._familyLabel = isRemix ? "Family" : `Remixes (${count})`;
+    const badge = artBadge(article);
+    if (!article._anim) idleBadge(article);
+    badge.onclick = (e) => {
+        e.stopPropagation();
+        startFamily(article);
+    };
     // The maker of the first pixie can arrange its frames.
     if (!isRemix && p.user_id === me.user_id) {
         const edit = document.createElement("button");
@@ -1210,7 +1210,9 @@ async function probeFamily(article) {
                 edit.disabled = false;
             }
         };
-        play.after(edit);
+        const row = article.querySelector(".family-row");
+        row.append(edit);
+        row.hidden = false;
     }
     article.querySelector('[data-format="gif"] small').textContent = "16×16 · animation";
 }
@@ -1225,22 +1227,47 @@ async function familyFrames(article) {
     return article._familyInfo?.frames.map((f) => f.data.pixels) || null;
 }
 
-async function startFamily(article, button) {
-    button.disabled = true;
-    button.lastChild.textContent = " Loading…";
+// The button on the art (bottom left): made once, kept for the life of the pixie on the page.
+function artBadge(article) {
+    let badge = article.querySelector(".art .frame-badge");
+    if (!badge) {
+        badge = document.createElement("button");
+        badge.type = "button";
+        badge.className = "frame-badge";
+        badge.innerHTML = `<svg><use href="#i-play"/></svg><span class="frame-no"></span><span class="frame-by"></span>`;
+        const stop = (e) => e.stopPropagation();
+        badge.addEventListener("dblclick", stop);
+        badge.addEventListener("touchend", stop);
+        article.querySelector(".art").append(badge);
+    }
+    return badge;
+}
+
+// Before the family is loaded: "▶ Remixes (N)".
+function idleBadge(article, text = article._familyLabel) {
+    const badge = artBadge(article);
+    badge.title = "Play this pixie's remix family as an animation";
+    badge.querySelector("use").setAttribute("href", "#i-play");
+    badge.querySelector(".frame-no").textContent = text;
+    badge.querySelector(".frame-by").textContent = "";
+    badge.classList.remove("own");
+}
+
+async function startFamily(article) {
+    const badge = artBadge(article);
+    if (badge.disabled) return;
+    badge.disabled = true;
+    idleBadge(article, "Loading…");
     try {
         await familyFrames(article);
         if (!article._anim) {
-            button.lastChild.textContent = " No remixes";
+            idleBadge(article, "No remixes");
             return;
         }
-        button.hidden = true; // the badge on the art pauses and plays from now on
-        const row = article.querySelector(".family-row");
-        if (![...row.children].some((c) => !c.hidden)) row.hidden = true;
         article._anim.wanted = true;
         playFrames(article._anim);
     } finally {
-        button.disabled = false;
+        badge.disabled = false;
     }
 }
 
@@ -1279,8 +1306,15 @@ async function loadFamily(article) {
 function resetFrames(article) {
     if (article._anim) {
         clearInterval(article._anim.timer);
-        article._anim.badge.remove();
         article._anim = null;
+    }
+    // The button stays on the art, waiting to play again.
+    if (article._hasFamily) {
+        idleBadge(article);
+        artBadge(article).onclick = (e) => {
+            e.stopPropagation();
+            startFamily(article);
+        };
     }
     article._familyInfo = null;
     article.querySelector(".remix-count").hidden = true;
@@ -1409,23 +1443,16 @@ function setupFrames(article, ownId, frames) {
     };
     article._anim = anim;
 
-    // "3 / 7 · Ann": which frame is showing and who drew it. Tap to pause or play.
-    const badge = document.createElement("button");
-    badge.type = "button";
-    badge.className = "frame-badge";
+    // "3 / 7 · Ann": which frame is showing and who drew it. The same button on the art; tap to pause or play.
+    const badge = artBadge(article);
     badge.title = "Remix animation: tap to pause or play";
-    badge.innerHTML = `<svg><use href="#i-play"/></svg><span class="frame-no"></span><span class="frame-by"></span>`;
     anim.badge = badge;
-    const stop = (e) => e.stopPropagation();
-    badge.addEventListener("dblclick", stop);
-    badge.addEventListener("touchend", stop);
     badge.onclick = (e) => {
         e.stopPropagation();
         anim.wanted = !anim.timer;
         if (anim.timer) stopFrames(anim);
         else playFrames(anim);
     };
-    article.querySelector(".art").append(badge);
 
     frames.forEach((f, n) => getUserInfo(f.user_id).then((u) => {
         anim.frames[n].name = authorLabel(u);
