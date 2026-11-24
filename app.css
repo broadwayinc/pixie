@@ -1161,6 +1161,24 @@ textarea:focus {
 
 .source-link svg { width: 18px; height: 18px; shape-rendering: auto; }
 
+/* ---------------------------------------------------------- the guest banner */
+
+.guest-banner {
+    position: relative;
+    margin: 0 0 18px;
+    padding: 14px 48px 14px 16px;
+    background: #fdeec9;
+    border: var(--line) solid var(--ink);
+    box-shadow: var(--shadow);
+}
+
+.guest-banner p { margin: 0 0 8px; }
+.guest-banner .guest-title { font: 400 11px/1.6 var(--px); margin-bottom: 10px; }
+.guest-close { position: absolute; top: 6px; right: 6px; }
+.guest-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 12px; }
+.guest-actions .btn.google { background: #fff; }
+.guest-actions .g-logo { width: 15px; height: 15px; shape-rendering: auto; }
+
 /* ---------------------------------------------------------- install / notifications banner */
 
 .pwa-banner {

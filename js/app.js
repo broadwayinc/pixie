@@ -308,7 +308,14 @@ function setupStudio() {
     } catch (err) { /* storage blocked */ }
     setColor(color);
     try {
-        const draft = JSON.parse(localStorage.getItem(draftKey()) || "null");
+        let saved = localStorage.getItem(draftKey());
+        // The drawing in progress of a guest account that was deleted while away (service.js guestEnded()).
+        const carried = localStorage.getItem("pixie:draft:carry");
+        if (carried) {
+            if (!saved) saved = carried;
+            localStorage.removeItem("pixie:draft:carry");
+        }
+        const draft = JSON.parse(saved || "null");
         if (draft && isValid(draft.pixels)) {
             editor.load(draft.pixels);
             remixOf = draft.remixOf || null;
@@ -2184,6 +2191,31 @@ async function togglePush() {
     }
 }
 
+/* ================================================================== guests */
+
+/*
+    A guest account (skapi.anonymousLogin()) is temporary: logging out deletes it at once, and Skapi deletes it
+    30 minutes after the last page holding it was left, with everything it made. It can't become a real account
+    and its things can't move to one, so the banner says so and offers the ways in. Closing it hides it for this
+    guest account; the next guest session (a new account) shows it again.
+*/
+function guestBannerKey() {
+    return "pixie:guest-banner:" + me.user_id;
+}
+
+function updateGuestBanner() {
+    let closed = false;
+    try { closed = !!localStorage.getItem(guestBannerKey()); } catch (err) { /* storage blocked */ }
+    $("guestBanner").hidden = !me?.anonymous || closed;
+}
+
+$("guestBannerClose").onclick = () => {
+    try { localStorage.setItem(guestBannerKey(), "1"); } catch (err) { /* storage blocked */ }
+    $("guestBanner").hidden = true;
+};
+// Google sends the visitor back to login.html, which signs them in and returns here.
+$("guestGoogleButton").onclick = () => googleLogin("index.html");
+
 /* ================================================================== installable app (PWA) */
 
 const isStandalone = () => matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
@@ -2629,6 +2661,7 @@ window.addEventListener("online", () => {
     initialFetch();
     renderActivity();
     connectRealtime();
+    updateGuestBanner();
     // Installable app: banners, notifications for this account on this device, updates.
     updatePwaBanner();
     syncPushSubscription();

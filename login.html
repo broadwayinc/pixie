@@ -50,6 +50,7 @@
             <div class="auth-hero" aria-hidden="true"><img src="icon.svg" alt=""></div>
             <div class="palette-strip" aria-hidden="true"></div>
             <h1>Welcome back</h1>
+            <p class="shared-note" id="guestEndedNote" hidden>⏳ Your guest session ended after a while away, so the pixies, comments and likes you made as a guest were deleted. Try pixie as a guest again, or <a href="signup.html">sign up</a> or continue with Google to keep what you make. Your drawing in progress is still here.</p>
             <p class="shared-note" id="sharedNote" hidden>👾 Someone shared a pixie with you! Log in, or <strong>try pixie as a guest</strong> below, to see it.</p>
             <p>Paint tiny 16×16 pixel art in NES colors and share it with friends.</p>
 
@@ -93,6 +94,14 @@
             destination = "index.html";
         }
         document.getElementById("loginForm").action = pageUrl(destination);
+        // A guest account that was deleted while the visitor was away (service.js guestEnded()).
+        try {
+            if (sessionStorage.getItem("pixie:guest-ended")) {
+                document.getElementById("guestEndedNote").hidden = false;
+                sessionStorage.removeItem("pixie:guest-ended");
+            }
+        } catch (err) { /* storage blocked */ }
+
         // A shared link (index.html#post=...) brought the visitor here.
         document.getElementById("sharedNote").hidden = !/#post=/.test(destination);
 

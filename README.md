@@ -35,6 +35,7 @@ It grew out of the photo gallery page of the Skapi HTML template (`templates-ska
 - **Avatars**: pick one of 12 pre-drawn avatars, **draw your own** in the studio, or keep the little 8×8 critter made from your account.
 - **Activity**: likes, comments, remixes and new followers arrive live while the app is open, and as **push notifications** when it isn't. You also get a push when someone you follow shares a pixie.
 - Accounts: sign up with email confirmation, log in, **continue with Google**, **change your name**, reset a forgotten password, **delete your account**, recover a removed account, or just **try it as a guest**.
+- **Guests** see a banner (they can close it) saying that what they make is deleted when they log out or after about 30 minutes away, with **Sign up** and **Continue with Google**. A guest account that expired while the visitor was away is caught on load (`skapi.verifyAnonymousSession()`) or when the page comes back (the SDK's keep-alive signs it out): the login page explains what happened, and the drawing in progress is carried over to the next account.
 - A [Privacy Policy](privacy.html) and [Terms of Service](terms.html), linked from the login and sign-up pages and the profile.
 
 **The app**

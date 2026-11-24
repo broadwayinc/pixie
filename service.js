@@ -170,10 +170,37 @@ let leavingOnPurpose = false;
     - autoLogin: a user who logged in before is logged in again automatically.
     - eventListener.onLogin: called on load with the restored profile or null, then on every login and logout.
 */
+/*
+    A guest account (skapi.anonymousLogin()) is deleted 30 minutes after the visitor was last on pixie, with
+    everything it made. A page restored from storage, or left open on a phone that froze it, can still hold the
+    session of such an account; the SDK finds out (verifyAnonymousSession() on load, its keep-alive when the page
+    comes back) and signs the page out. Then: the login page tells the visitor what happened, the drawing in
+    progress (kept only in this browser) is carried over to the next account, and the gone account's other leftovers
+    in this browser are removed. A logout, an account deletion or a login with a real account is not this.
+*/
+let lastUser = null;
+
+function guestEnded(user) {
+    try {
+        sessionStorage.setItem("pixie:guest-ended", "1");
+        const draft = localStorage.getItem("pixie:draft:" + user.user_id);
+        if (draft) localStorage.setItem("pixie:draft:carry", draft);
+        for (const key of Object.keys(localStorage)) {
+            if (key.startsWith("pixie:") && key.includes(user.user_id)) localStorage.removeItem(key);
+        }
+    } catch (err) {
+        // storage blocked: the login page just won't explain
+    }
+}
+
 let options = {
     autoLogin: true,
     eventListener: {
         onLogin: (user) => {
+            if (!user && lastUser && lastUser.anonymous && !leavingOnPurpose) {
+                guestEnded(lastUser);
+            }
+            lastUser = user || null;
             if (!user && !leavingOnPurpose && LOGIN_REQUIRED.includes(currentPage())) {
                 goToLogin();
             }
@@ -192,10 +219,15 @@ try {
 }
 
 /*
-    userReady resolves once the automatic login has been tried:
-    to the user's profile, or to null when nobody is logged in.
+    userReady resolves once the automatic login has been tried: to the user's profile, or to null when nobody is
+    logged in. A guest session restored from storage is checked with the server first
+    (skapi.verifyAnonymousSession()), so a page never starts on a guest account that was already deleted.
 */
-const userReady = skapi.getProfile().then((user) => {
+const userReady = (typeof skapi.verifyAnonymousSession === "function" ? skapi.verifyAnonymousSession() : skapi.getProfile()).then((user) => {
+    if (!user && lastUser && lastUser.anonymous && !leavingOnPurpose) {
+        guestEnded(lastUser);
+        lastUser = null;
+    }
     if (!user && LOGIN_REQUIRED.includes(currentPage())) {
         goToLogin();
     }
