@@ -1,6 +1,7 @@
 /*
-    A simulation test of the remix hub code in js/app.js: unlinking a remix from its family, the fallback to
-    deleting it, hubs posted with can_modify_referencing_records, and how membership of a family is decided.
+    A simulation test of the remix hub code in js/app.js: unlinking a remix from its family (someone else's, or
+    your own, which becomes your regular pixie at once), never deleting one, hubs posted with
+    can_modify_referencing_records, and how membership of a family is decided.
 
     js/app.js is a browser module that touches the page as soon as it loads, so it can't be imported here.
     Instead the functions under test are cut out of its source as they are and run in a sandbox where skapi,
@@ -28,8 +29,9 @@ function cut(name) {
 }
 
 const FUNCTIONS = [
-    "isUnlinked", "familyRootOf", "inFamily", "ensureHub", "makeHub", "removeFrame", "unlinkRemix", "loadFamily", "hiddenInFeed",
-    "fetchAll", "remixOriginalData", "promotionConfig", "toPromote", "promoteRemix", "promoteUnlinkedRemixes",
+    "isUnlinked", "familyRootOf", "inFamily", "ensureHub", "makeHub", "canRemoveFrame", "removeFrame", "unlinkRemix", "loadFamily",
+    "hiddenInFeed", "fetchAll", "remixOriginalData", "promotionConfig", "toPromote", "promoteRemix", "promoteUnlinkedRemixes",
+    "settlePromoted",
 ];
 const PIXELS = "d".repeat(256);
 
@@ -114,6 +116,18 @@ const theirRemix = () => ({
     data: { pixels: PIXELS, description: "hi", remix_of: { record_id: "root1", user_id: "owner", name: "o" }, remix_root: "root1", remix_hub: "hub1" },
 });
 
+// A fake postRecord that answers like Skapi: the record with the table it was given (or the one it had).
+const echo = (tables = {}) => (data, config) => {
+    if (config.table?.name) tables[config.record_id] = config.table;
+    return { record_id: config.record_id || "hub-" + data?.root, data, source: config.source, table: tables[config.record_id] || config.table };
+};
+const marked = (byTable) => (q, opts) => {
+    if (q.table?.name === "remix_hubs") return { list: [], endOfList: true };
+    const pages = byTable[q.table?.name] || [[]];
+    const n = opts.fetchMore ? 1 : 0;
+    return { list: pages[n] || [], endOfList: n >= pages.length - 1 };
+};
+
 const tests = [];
 const test = (name, fn) => tests.push([name, fn]);
 
@@ -192,56 +206,125 @@ test("removeFrame unlinks someone else's remix: reference dropped, marked with i
     assert.match(t.calls.toast[0], /next time they open pixie/);
 });
 
-test("removeFrame falls back to deleting when the backend refuses the unlink (after asking), and says so", async () => {
+test("removeFrame never deletes: when the backend refuses the unlink, the remix stays and the maker is told", async () => {
     const t = sandbox({ postRecord: () => { throw Object.assign(new Error("not allowed"), { code: "INVALID_REQUEST" }); } });
     const f = theirRemix();
     t.ctx.framesEdit = { rootId: "root1", hub: hubOn, list: [f] };
     await t.removeFrame(f);
-    assert.equal(t.calls.confirm.length, 2);
-    assert.match(t.calls.confirm[1], /not allowed/);
-    assert.deepEqual(t.calls.del, [{ record_id: "rx1" }]);
-    assert.match(t.calls.toast[0], /Couldn't unlink/);
-});
-
-test("removeFrame keeps the remix when the fallback delete is declined", async () => {
-    const t = sandbox({ confirms: [true, false], postRecord: () => { throw new Error("refused"); } });
-    const f = theirRemix();
-    t.ctx.framesEdit = { rootId: "root1", hub: hubOn, list: [f] };
-    await t.removeFrame(f);
+    assert.equal(t.calls.confirm.length, 1); // no second question about deleting it
     assert.equal(t.calls.del.length, 0);
-    assert.equal(t.calls.toast.length, 0);
+    assert.equal(t.calls.toast.length, 1);
+    assert.match(t.calls.toast[0], /^ALERT .*not allowed.*Nothing was deleted/);
     assert.equal(t.ctx.framesEdit.list.length, 1);
+    assert.deepEqual(t.calls.reload, []);
 });
 
-test("removeFrame deletes, as before, for a hub without the setting, and the toast says why", async () => {
+test("removeFrame never deletes someone's remix in a hub without the setting: it stays, and the maker is told why", async () => {
     const t = sandbox();
     const f = theirRemix();
     t.ctx.framesEdit = { rootId: "root1", hub: hubOld, list: [f] };
     await t.removeFrame(f);
-    assert.equal(t.calls.post.length, 0);
-    assert.deepEqual(t.calls.del, [{ record_id: "rx1" }]);
-    assert.match(t.calls.confirm[0], /can't unlink/);
-    assert.match(t.calls.toast[0], /can't unlink/);
+    assert.equal(t.calls.post.length + t.calls.del.length + t.calls.confirm.length, 0);
+    assert.match(t.calls.toast[0], /^ALERT .*made before.*Nothing was deleted/);
+    assert.equal(t.ctx.framesEdit.list.length, 1);
 });
 
-test("removeFrame deletes a remix that doesn't reference the hub (made before hubs), as before", async () => {
+test("removeFrame never deletes someone's remix that doesn't reference the hub (made before hubs)", async () => {
     const t = sandbox();
     const f = { ...theirRemix(), reference: undefined, table: { name: "pixies", access_group: "authorized" } };
     t.ctx.framesEdit = { rootId: "root1", hub: hubOn, list: [f] };
     await t.removeFrame(f);
-    assert.equal(t.calls.post.length, 0);
-    assert.deepEqual(t.calls.del, [{ record_id: "rx1" }]);
+    assert.equal(t.calls.post.length + t.calls.del.length + t.calls.confirm.length, 0);
+    assert.match(t.calls.toast[0], /^ALERT .*Nothing was deleted/);
 });
 
-test("removeFrame on the owner's own frame deletes it, with today's wording", async () => {
+test("removeFrame has nothing to do for the first pixie of the family", async () => {
     const t = sandbox();
+    const root = { record_id: "root1", user_id: "owner", table: { name: "pixies", access_group: "authorized" }, data: { pixels: PIXELS } };
+    t.ctx.framesEdit = { rootId: "root1", hub: hubOn, list: [root, theirRemix()] };
+    await t.removeFrame(root);
+    assert.equal(t.calls.post.length + t.calls.del.length + t.calls.confirm.length + t.calls.toast.length, 0);
+    assert.equal(t.ctx.framesEdit.list.length, 2);
+    assert.equal(t.canRemoveFrame(root, t.ctx.framesEdit), false);
+});
+
+test("canRemoveFrame: your own remixes always, someone else's only when the hub can unlink it", () => {
+    const t = sandbox();
+    const mine = { ...theirRemix(), user_id: "owner" };
+    assert.equal(t.canRemoveFrame(mine, { rootId: "root1", hub: hubOn }), true);
+    assert.equal(t.canRemoveFrame(mine, { rootId: "root1", hub: hubOld }), true);
+    assert.equal(t.canRemoveFrame({ ...mine, reference: undefined }, { rootId: "root1", hub: null }), true);
+    assert.equal(t.canRemoveFrame(theirRemix(), { rootId: "root1", hub: hubOn }), true);
+    assert.equal(t.canRemoveFrame(theirRemix(), { rootId: "root1", hub: hubOld }), false);
+    assert.equal(t.canRemoveFrame({ ...theirRemix(), reference: "hub9" }, { rootId: "root1", hub: hubOn }), false);
+    assert.equal(t.canRemoveFrame({ record_id: "root1", user_id: "owner" }, { rootId: "root1", hub: hubOn }), false);
+});
+
+test("removeFrame on your own remix unlinks it like someone's, then makes it your regular pixie at once; nothing deleted", async () => {
+    const t = sandbox({ postRecord: echo() });
+    const f = { ...theirRemix(), user_id: "owner" };
+    t.ctx.framesEdit = { rootId: "root1", hub: hubOld, list: [{ record_id: "root1" }, f] }; // your own: the hub's setting doesn't matter
+    await t.removeFrame(f);
+    assert.equal(t.calls.del.length, 0);
+    assert.match(t.calls.confirm[0], /isn't deleted.*your regular pixie/);
+    const writes = t.calls.post.filter((c) => c.config.record_id === "rx1");
+    assert.equal(writes.length, 3);
+    // 1. The unlink, exactly as for someone else's remix.
+    assert.deepEqual(writes[0].config, { record_id: "rx1", reference: null, index: { name: "remix_unlinked", value: "owner" } });
+    assert.deepEqual(writes[0].data.remix_unlinked, { root: "root1", hub: "hub1" });
+    assert.equal("remix_root" in writes[0].data, false);
+    assert.equal("remix_hub" in writes[0].data, false);
+    // 2. The move into "pixies" as an original (the credit goes), keeping the mark until it is confirmed.
+    assert.equal(writes[1].config.table.name, "pixies");
+    assert.equal("index" in writes[1].config, false);
+    assert.deepEqual(writes[1].data, { pixels: PIXELS, description: "hi", remix_unlinked: { root: "root1", hub: "hub1" } });
+    // 3. The mark goes.
+    assert.deepEqual(writes[2].config, { record_id: "rx1", index: null });
+    assert.equal(writes[2].data, undefined);
+    // It gets a hub of its own, and the lists on screen are read again.
+    assert.deepEqual(t.calls.post.filter((c) => c.config.table?.name === "remix_hubs").map((c) => c.data.root), ["rx1"]);
+    assert.equal(t.calls.fetch, 1);
+    assert.deepEqual(plain(t.ctx.framesEdit.list.map((x) => x.record_id)), ["root1"]);
+    assert.deepEqual(t.calls.reload, ["root1"]);
+    assert.equal(t.calls.toast[0], "Remix taken out of the family: it is now your regular pixie");
+    // The session's own pass still runs later (it is not used up by this).
+    assert.equal(t.ctx.promotedFor, null);
+});
+
+test("removeFrame on your own remix: when the move fails it stays unlinked and marked, for your next session", async () => {
+    const tables = {};
+    const t = sandbox({
+        postRecord: (data, config) => {
+            if (config.table?.name === "pixies") throw new Error("offline");
+            return echo(tables)(data, config);
+        },
+    });
     const f = { ...theirRemix(), user_id: "owner" };
     t.ctx.framesEdit = { rootId: "root1", hub: hubOn, list: [f] };
     await t.removeFrame(f);
-    assert.equal(t.calls.post.length, 0);
-    assert.deepEqual(t.calls.del, [{ record_id: "rx1" }]);
-    assert.equal(t.calls.confirm[0], "Remove this remix by owner? It is deleted for everyone.");
-    assert.equal(t.calls.toast[0], "Remix removed");
+    assert.equal(t.calls.del.length, 0);
+    assert.equal(t.calls.post[0].config.index.name, "remix_unlinked");
+    assert.match(t.calls.toast[0], /next time you open pixie/);
+    assert.equal(t.calls.fetch, 0);
+    assert.ok(t.calls.warn.some((w) => String(w[0]).includes("next time")));
+    // What the record is now: picked up by promoteUnlinkedRemixes() next session.
+    const now = { ...f, reference: null, index: t.calls.post[0].config.index, data: t.calls.post[0].data };
+    assert.deepEqual(plain(t.toPromote([now], "owner").map((r) => r.record_id)), ["rx1"]);
+});
+
+test("removeFrame on your own remix: when the unlink fails, nothing changes and nothing is deleted", async () => {
+    const t = sandbox({ postRecord: () => { throw new Error("refused"); } });
+    const f = { ...theirRemix(), user_id: "owner" };
+    t.ctx.framesEdit = { rootId: "root1", hub: hubOn, list: [f] };
+    await t.removeFrame(f);
+    assert.equal(t.calls.del.length, 0);
+    assert.equal(t.calls.post.length, 1);
+    assert.match(t.calls.toast[0], /^ALERT .*refused.*Nothing was deleted/);
+    assert.equal(t.ctx.framesEdit.list.length, 1);
+});
+
+test("removeFrame never calls deleteRecords, in its source", () => {
+    assert.doesNotMatch(cut("removeFrame"), /deleteRecords/);
 });
 
 test("removeFrame does nothing when the unlink is not confirmed", async () => {
@@ -359,18 +442,6 @@ test("hiddenInFeed: an unlinked remix is a regular pixie in every view, a linked
     }
     assert.equal(sandbox({ hash: "myremixes" }).hiddenInFeed(theirRemix()), false);
 });
-
-// A fake postRecord that answers like Skapi: the record with the table it was given (or the one it had).
-const echo = (tables = {}) => (data, config) => {
-    if (config.table?.name) tables[config.record_id] = config.table;
-    return { record_id: config.record_id || "hub-" + data?.root, data, source: config.source, table: tables[config.record_id] || config.table };
-};
-const marked = (byTable) => (q, opts) => {
-    if (q.table?.name === "remix_hubs") return { list: [], endOfList: true };
-    const pages = byTable[q.table?.name] || [[]];
-    const n = opts.fetchMore ? 1 : 0;
-    return { list: pages[n] || [], endOfList: n >= pages.length - 1 };
-};
 
 test("promoteUnlinkedRemixes reads only your marked records, and moves each in place, then drops the mark", async () => {
     const t = sandbox({

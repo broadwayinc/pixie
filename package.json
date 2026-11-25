@@ -4,9 +4,10 @@
   "description": "pixie: paint and share 16x16 pixel art in NES colors. Plain HTML + JavaScript on Skapi.",
   "main": "index.html",
   "private": true,
+  "type": "module",
   "scripts": {
     "dev": "npx bns port=4000",
-    "test": "node tests/remix-unlink.test.mjs"
+    "test": "node tests/remix-unlink.test.mjs && node tests/share.test.mjs"
   },
   "license": "ISC",
   "dependencies": {

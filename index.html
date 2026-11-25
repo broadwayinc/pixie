@@ -286,7 +286,7 @@
                 <span class="spacer"></span>
                 <button type="button" class="icon-btn" data-close-panel aria-label="Close"><svg><use href="#i-close"/></svg></button>
             </header>
-            <p class="hint">Your pixie and its remixes play in this order. Move frames up or down, or remove a remix from your family. Someone else's remix leaves the family and stays on their page (in families made before unlinking existed, it is deleted); your own is deleted.</p>
+            <p class="hint">Your pixie and its remixes play in this order. Move frames up or down, or take a remix out of your family: it is never deleted. Someone else's remix becomes their regular pixie the next time they open pixie; your own becomes your regular pixie right away.</p>
             <ol class="frame-list" id="frameList"></ol>
             <button type="button" class="btn primary wide" id="saveFramesButton">Save order</button>
         </div>
@@ -315,10 +315,14 @@
             </div>
             <p class="hint" id="sharePrivateNote" hidden>This pixie is private, so others can't open a link to it. You can still share the picture.</p>
             <h3>Save and post it yourself</h3>
+            <!-- Each file is made when its button is tapped (the video takes as long as it plays): see openShare(). -->
             <div class="share-saves">
-                <button type="button" class="btn small" id="saveVideoButton" hidden><svg><use href="#i-download"/></svg> Video</button>
-                <button type="button" class="btn small" id="saveImageButton"><svg><use href="#i-download"/></svg> Image</button>
-                <button type="button" class="btn small" id="saveGifButton"><svg><use href="#i-download"/></svg> GIF</button>
+                <button type="button" class="btn small" id="saveVideoButton" hidden><svg><use href="#i-download"/></svg> <span class="label">Video</span></button>
+                <button type="button" class="btn small" id="saveImageButton"><svg><use href="#i-download"/></svg> <span class="label">Image</span></button>
+                <button type="button" class="btn small" id="saveGifButton"><svg><use href="#i-download"/></svg> <span class="label">GIF animation</span></button>
+                <button type="button" class="btn small" id="saveGifSmallButton"><svg><use href="#i-download"/></svg> <span class="label">GIF animation 16×16</span></button>
+                <button type="button" class="btn small" id="savePngButton"><svg><use href="#i-download"/></svg> <span class="label">PNG 512×512</span></button>
+                <button type="button" class="btn small" id="saveIcoButton"><svg><use href="#i-download"/></svg> <span class="label">ICO 16×16</span></button>
             </div>
             <p class="hint share-tip">Instagram and TikTok take only videos and pictures: on a phone use <strong>Share…</strong>, or save the video or image and post it from the app.</p>
         </div>

@@ -2,10 +2,11 @@
     share.js: turning a pixie into something to post on Instagram, Threads, TikTok, X...
 
     - A square 1080 x 1080 picture (what Instagram and Threads like best): the pixie drawn big with crisp pixels
-      on pixie's graph paper, with a small "pixie.skapi.com" credit.
+      on pixie's graph paper, with a small credit line: "by <its maker's name>".
     - An animated pixie becomes a video of those pictures (MP4 where the browser can record it, which is what
-      Instagram, Threads and TikTok take; WebM otherwise), looping for at least 6 seconds. Browsers record video
-      in real time, so making one takes as long as the video plays.
+      Instagram, Threads and TikTok take; WebM otherwise), looping for at least 6 seconds, credited
+      "pixie.skapi.com". Browsers record video in real time, so making one takes as long as the video plays: the
+      app makes it only when it is asked for.
     - Links to post the pixie's address on the sites that have a "share" page.
 */
 import { SIZE, NES, TRANSPARENT, decode } from "./nes.js";
@@ -14,6 +15,25 @@ export const SHARE_SIZE = 1080;
 const ART = 864; // 16 x 54 pixels
 const ART_X = (SHARE_SIZE - ART) / 2;
 const ART_Y = 84;
+const CREDIT_FONT = '26px "Press Start 2P", monospace';
+const CREDIT_WIDTH = SHARE_SIZE - 120; // the credit line keeps 60px clear at each side
+
+/*
+    text, cut to fit maxWidth (as measure(text) measures it) with "…" at the end when it is cut. Whole characters
+    (code points) are kept, so an emoji is never split in half.
+*/
+export function fitText(text, maxWidth, measure) {
+    const chars = Array.from(String(text ?? "").replace(/\s+/g, " ").trim());
+    if (measure(chars.join("")) <= maxWidth) return chars.join("");
+    while (chars.length && measure(chars.join("").trimEnd() + "…") > maxWidth) chars.pop();
+    return chars.length ? chars.join("").trimEnd() + "…" : "";
+}
+
+// The credit line of the share picture: "by <name>", or the app's address when there is no name.
+export function shareCredit(by) {
+    const name = String(by ?? "").replace(/\s+/g, " ").trim();
+    return name ? "by " + name : "pixie.skapi.com";
+}
 
 let fontReady = null;
 function loadFont() {
@@ -23,8 +43,8 @@ function loadFont() {
     return fontReady;
 }
 
-// Draw one frame of the share picture.
-export function drawShareFrame(ctx, str) {
+// Draw one frame of the share picture, with the credit line (cut with "…" when it is too long).
+export function drawShareFrame(ctx, str, credit = "pixie.skapi.com") {
     const S = SHARE_SIZE;
     ctx.imageSmoothingEnabled = false;
     // Graph paper
@@ -52,10 +72,10 @@ export function drawShareFrame(ctx, str) {
     }
     // Credit
     ctx.fillStyle = "#1c1030";
-    ctx.font = '26px "Press Start 2P", monospace';
+    ctx.font = CREDIT_FONT;
     ctx.textAlign = "center";
     ctx.textBaseline = "alphabetic";
-    ctx.fillText("pixie.skapi.com", S / 2, S - 44);
+    ctx.fillText(fitText(credit, CREDIT_WIDTH, (t) => ctx.measureText(t).width), S / 2, S - 44);
 }
 
 function shareCanvas() {
@@ -64,11 +84,11 @@ function shareCanvas() {
     return canvas;
 }
 
-// A still share picture (PNG).
-export async function makeShareImage(str) {
+// A still share picture (PNG), credited "by <by>" (the pixie's maker).
+export async function makeShareImage(str, { by = "" } = {}) {
     await loadFont();
     const canvas = shareCanvas();
-    drawShareFrame(canvas.getContext("2d"), str);
+    drawShareFrame(canvas.getContext("2d"), str, shareCredit(by));
     return new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
 }
 
@@ -80,9 +100,10 @@ export function videoSupport() {
 
 /*
     A video of the frames, each shown frameMs, looped to at least minMs. Resolves to { blob, ext, type }.
-    onProgress(0..1) is called as it records.
+    onProgress(0..1) is called as it records. isCancelled() is asked before each frame and on every repaint (30 times
+    a second): once it says true, the recording stops within 1/30 s and the promise rejects with an AbortError.
 */
-export async function makeShareVideo(frames, frameMs, { minMs = 6000, onProgress = () => { } } = {}) {
+export async function makeShareVideo(frames, frameMs, { minMs = 6000, onProgress = () => { }, isCancelled = () => false } = {}) {
     const mimeType = videoSupport();
     if (!mimeType) throw new Error("This browser can't make videos. Save the GIF instead.");
     await loadFont();
@@ -100,14 +121,27 @@ export async function makeShareVideo(frames, frameMs, { minMs = 6000, onProgress
     };
     const stopped = new Promise((resolve) => (recorder.onstop = resolve));
     recorder.start(500);
-    // Keep painting at 30 fps, so every encoder gets a steady stream of frames.
-    const painter = setInterval(() => drawShareFrame(ctx, current), 1000 / 30);
+    // Keep painting at 30 fps, so every encoder gets a steady stream of frames. A cancel is noticed here too, so
+    // the recording stops within one tick (1/30 s), not at the end of a whole frame.
+    let wake = null;
+    const painter = setInterval(() => {
+        if (isCancelled()) return wake?.();
+        drawShareFrame(ctx, current);
+    }, 1000 / 30);
+    let cancelled = false;
     try {
         for (let i = 0; i < total; i++) {
+            if (isCancelled()) {
+                cancelled = true;
+                break;
+            }
             current = frames[i % frames.length];
             drawShareFrame(ctx, current);
             onProgress(i / total);
-            await new Promise((r) => setTimeout(r, frameMs));
+            await new Promise((r) => {
+                wake = r;
+                setTimeout(r, frameMs);
+            });
         }
     } finally {
         clearInterval(painter);
@@ -115,6 +149,7 @@ export async function makeShareVideo(frames, frameMs, { minMs = 6000, onProgress
         await stopped;
         stream.getTracks().forEach((t) => t.stop());
     }
+    if (cancelled) throw new DOMException("The video was cancelled", "AbortError");
     onProgress(1);
     const type = mimeType.split(";")[0];
     return { blob: new Blob(chunks, { type }), ext: type === "video/mp4" ? "mp4" : "webm", type };

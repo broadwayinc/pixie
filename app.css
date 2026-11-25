@@ -132,15 +132,17 @@ svg {
 }
 
 .btn:hover { background: #fff; }
-.btn:active:not(:disabled) { transform: translate(4px, 4px); box-shadow: 0 0 0 var(--ink); }
+.btn:active:not(:disabled):not([aria-disabled="true"]) { transform: translate(4px, 4px); box-shadow: 0 0 0 var(--ink); }
 .btn:disabled { opacity: .45; cursor: default; }
+/* A button at work keeps focus (setWorking() in js/app.js), so it is aria-disabled, not disabled. */
+.btn[aria-disabled="true"]:not(.busy) { opacity: .45; cursor: default; }
 .btn svg { width: 15px; height: 15px; flex: none; }
 
 .btn.primary { background: var(--accent); color: #fff; }
 .btn.primary:hover { background: #f8306f; }
 .btn.danger { color: var(--accent); }
 .btn.small { min-height: 36px; padding: 7px 11px; font-size: 9px; box-shadow: 3px 3px 0 var(--ink); }
-.btn.small:active:not(:disabled) { transform: translate(3px, 3px); }
+.btn.small:active:not(:disabled):not([aria-disabled="true"]) { transform: translate(3px, 3px); }
 .btn.icon-only { padding: 7px 9px; }
 .btn.wide { width: 100%; }
 .btn.following { background: var(--cream); }
@@ -531,29 +533,21 @@ svg {
 .actions { flex-wrap: wrap; row-gap: 8px; }
 .actions .btn.small { margin-right: 6px; white-space: nowrap; }
 
-/* Frames (the owner's), under the actions; ▶ Remixes is on the art */
-.family-row { display: flex; flex-wrap: wrap; gap: 10px; margin: 2px 0 12px; }
-.family-row .btn.small { white-space: nowrap; }
-
-.download-menu {
-    display: flex;
-    flex-wrap: wrap;
-    justify-content: flex-end;
-    gap: 8px;
-    margin: 4px 0 10px;
+/*
+    Frames (the first pixie's maker, when it has remixes) sits right before Remix; ▶ Remixes is on the art. On a
+    narrow phone the row is packed tighter so it stays on one line: Frames and Remix drop their icons, and below
+    360px Frames is its icon alone.
+*/
+@media (max-width: 430px) {
+    .actions.with-frames .icon-btn { width: 40px; }
+    .actions.with-frames .btn.small { padding: 7px; margin-right: 4px; }
+    .actions.with-frames .btn.small svg { display: none; }
 }
 
-.download-menu button {
-    padding: 8px 10px;
-    border: var(--line) solid var(--ink);
-    background: var(--paper);
-    box-shadow: 3px 3px 0 var(--ink);
-    font: 400 9px/1.4 var(--px);
+@media (max-width: 359px) {
+    .actions.with-frames .btn.small.frames-edit svg { display: block; }
+    .actions.with-frames .frames-edit .label { display: none; }
 }
-
-.download-menu button small { font: 600 14px/1 var(--body); color: var(--muted); margin-left: 4px; }
-.download-menu button:hover { background: var(--cream); }
-.download-menu button:active { transform: translate(3px, 3px); box-shadow: none; }
 .like[aria-pressed="true"] { color: var(--accent); }
 
 .likes-line {
@@ -1405,6 +1399,15 @@ body.doc-body { padding-bottom: 40px; }
 }
 
 .share-tip { margin-top: 4px; }
+
+/* A button making a video: "Making video… 42%", filling up as it goes. */
+.btn.busy,
+.btn.busy:hover {
+    background-image: linear-gradient(90deg, rgba(28, 16, 48, .2) var(--progress, 0%), transparent var(--progress, 0%));
+    cursor: progress;
+}
+
+.btn.busy:disabled { opacity: 1; }
 
 /* Continue with Google: white, with Google's own "G". */
 .btn.google { background: #fff; gap: 12px; }

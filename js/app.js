@@ -863,16 +863,10 @@ async function createArticleContent(p) {
                 <button type="button" class="icon-btn like social" aria-pressed="false" aria-label="Like" disabled><svg><use href="#i-heart"/></svg></button>
                 <button type="button" class="icon-btn comment-jump social" aria-label="Comment"><svg><use href="#i-comment"/></svg></button>
                 <span class="spacer"></span>
+                <button type="button" class="btn small frames-edit" hidden aria-label="Frames" title="Arrange or remove the frames of this remix family"><svg><use href="#i-grid"/></svg> <span class="label">Frames</span></button>
                 <button type="button" class="btn small remix" title="Open a copy in your studio"><svg><use href="#i-remix"/></svg> Remix</button>
-                <button type="button" class="icon-btn share" aria-label="Share" title="Share on Instagram, Threads, X..."><svg><use href="#i-share"/></svg></button>
-                <button type="button" class="icon-btn download" aria-label="Download" title="Download" aria-haspopup="menu" aria-expanded="false"><svg><use href="#i-download"/></svg></button>
+                <button type="button" class="icon-btn share" aria-label="Share or save" title="Share on Instagram, Threads, X... or save it"><svg><use href="#i-share"/></svg></button>
             </div>
-            <div class="download-menu" role="menu" hidden>
-                <button type="button" role="menuitem" data-format="png512">PNG <small>512×512</small></button>
-                <button type="button" role="menuitem" data-format="gif">GIF <small>16×16</small></button>
-                <button type="button" role="menuitem" data-format="ico">ICO <small>16×16 icon</small></button>
-            </div>
-            <div class="family-row" hidden></div>
             <p class="likes-line social"><span class="like-count">0</span> <span class="like-word">likes</span></p>
             <p class="caption"><strong class="cap-name"></strong><span class="description"></span></p>
             <p class="tags"></p>
@@ -945,29 +939,8 @@ async function createArticleContent(p) {
         const root = familyRootOf(p);
         openStudio({ pixels, remix: { record_id, user_id: p.user_id, name, root } });
     };
+    // Share, and saving it as a video, picture, GIF, PNG or icon (the Share panel).
     article.querySelector(".share").onclick = () => openShare(article, p, name);
-
-    // Download: a big PNG, a 16 x 16 PNG, or a 16 x 16 .ico icon. Transparent pixels stay transparent.
-    const downloadButton = article.querySelector(".download");
-    const menu = article.querySelector(".download-menu");
-    downloadButton.onclick = (e) => {
-        e.stopPropagation();
-        const open = menu.hidden;
-        closeDownloadMenus();
-        menu.hidden = !open;
-        downloadButton.setAttribute("aria-expanded", String(open));
-    };
-    for (const item of menu.querySelectorAll("[data-format]")) {
-        item.onclick = async () => {
-            closeDownloadMenus();
-            const format = item.dataset.format;
-            // The GIF is the animation when the pixie plays one (frames in the order they play), else a still.
-            const frames = (format === "gif" && (await familyFrames(article))) || [pixels];
-            const blob = format === "ico" ? toIco(pixels) : format === "gif" ? toGif(frames, FRAME_MS) : await toBlob(pixels, 32);
-            const suffix = format === "ico" ? ".ico" : format === "gif" ? (frames.length > 1 ? "-animation.gif" : ".gif") : ".png";
-            saveFile(blob, `pixie-${record_id}${suffix}`);
-        };
-    }
 
     // Delete, only on the user's own pixies.
     const deleteButton = article.querySelector(".delete");
@@ -1070,9 +1043,9 @@ async function createArticleContent(p) {
     Every public pixie that can start a remix family has a "remix hub": a record in the table "remix_hubs",
     made by the pixie's maker, with data { root, order } and the index root = <the pixie's record id>.
     - Public remixes reference the hub. The hub has can_modify_referencing_records, so its owner can take
-      someone's remix out of the family without deleting it (see removeFrame()), can_remove_referencing_records,
-      so its owner can still delete a remix, and referencing_index_restrictions, so only records of this
-      family (index remix_root = root) can reference it.
+      someone's remix out of the family without deleting it (see removeFrame()), can_remove_referencing_records
+      (still set, though the app never deletes a remix from the family any more), and
+      referencing_index_restrictions, so only records of this family (index remix_root = root) can reference it.
     - order is the order of the frames, set by the hub's owner in the Frames editor.
     A hub is looked up by its index and must belong to the maker of the first pixie, so nobody else's record
     can act as a family's hub.
@@ -1299,14 +1272,11 @@ async function probeFamily(article) {
         e.stopPropagation();
         startFamily(article);
     };
-    // The maker of the first pixie can arrange its frames.
+    // The maker of the first pixie can arrange its frames: "Frames", next to Remix.
     if (!isRemix && p.user_id === me.user_id) {
-        const edit = document.createElement("button");
-        edit.type = "button";
-        edit.className = "btn small frames-edit";
-        edit.title = "Arrange or remove the frames of this remix family";
-        edit.append(svgIcon("grid"), "Frames");
+        const edit = article.querySelector(".frames-edit");
         edit.onclick = async () => {
+            if (edit.disabled) return;
             edit.disabled = true;
             try {
                 if (await familyFrames(article)) openFramesEditor(article);
@@ -1314,11 +1284,9 @@ async function probeFamily(article) {
                 edit.disabled = false;
             }
         };
-        const row = article.querySelector(".family-row");
-        row.append(edit);
-        row.hidden = false;
+        edit.hidden = false;
+        article.querySelector(".actions").classList.add("with-frames");
     }
-    article.querySelector('[data-format="gif"] small').textContent = "16×16 · animation";
 }
 
 // The family's frames (pixie strings), fetched once; null when there is no family.
@@ -1406,7 +1374,6 @@ async function loadFamily(article) {
     const frames = [...family.values()].sort((a, b) => (place(a) - place(b)) || (time(a) - time(b)));
     article._familyInfo = { rootId, root, hub, frames };
     setupFrames(article, p.record_id, frames);
-    article.querySelector('[data-format="gif"] small').textContent = `16×16 · ${frames.length} frames`;
 }
 
 // Remove the animation of a pixie (before it is loaded again).
@@ -1491,7 +1458,8 @@ function renderFramesEditor() {
             btn("up", "Move up", () => moveFrame(n, -1), n === 0),
             btn("down", "Move down", () => moveFrame(n, 1), n === list.length - 1),
         );
-        if (f.record_id !== rootId) tools.append(btn("trash", "Remove this remix", () => removeFrame(f), false, "danger"));
+        // The first pixie has no remove button: it can't leave its own family. Removing never deletes.
+        if (f.record_id !== rootId) tools.append(btn("close", "Take this remix out of the family", () => removeFrame(f), false, "danger"));
         li.append(img, text, tools);
         return li;
     }));
@@ -1504,69 +1472,87 @@ function moveFrame(n, d) {
 }
 
 /*
-    The hub's owner takes a remix out of the family.
-    - Someone else's remix is unlinked, not deleted. The hub has can_modify_referencing_records, so its owner may
-      update a remix that references it, and change only its data, tags and index, or drop the reference. The
-      update drops the reference to the hub (reference: null), moves remix_root and remix_hub in its data to
-      remix_unlinked, and replaces the remix_root index with remix_unlinked = <its maker's user id>, so no query
-      and no check (inFamily()) counts it in the family again. Its maker keeps it, with its art, caption and tags.
-      The hub's owner can't move it to another table: the next time its maker opens pixie, their app finds it by
-      that index and moves it to "pixies" as their regular pixie (promoteUnlinkedRemixes()). Until then it is
-      under its maker's My remixes.
-    - A hub made before that setting existed (only the project owner can turn it on for an existing hub), a
-      remix that doesn't reference the hub, or a backend that refuses the update: the remix is deleted instead
-      (can_remove_referencing_records), as it always was.
-    - The owner's own frames are deleted, as before.
+    The hub's owner takes a remix out of the family. Nothing is ever deleted here: deleting a pixie is only its own
+    trash button. The first pixie of the family can't be taken out of its own family (it has no remove button).
+    - Someone else's remix is unlinked. The hub has can_modify_referencing_records, so its owner may update a remix
+      that references it, and change only its data, tags and index, or drop the reference. The update drops the
+      reference to the hub (reference: null), moves remix_root and remix_hub in its data to remix_unlinked, and
+      replaces the remix_root index with remix_unlinked = <its maker's user id>, so no query and no check
+      (inFamily()) counts it in the family again. Its maker keeps it, with its art, caption and tags. The hub's
+      owner can't move it to another table: the next time its maker opens pixie, their app finds it by that index
+      and moves it to "pixies" as their regular pixie (promoteUnlinkedRemixes()). Until then it is under its
+      maker's My remixes.
+    - Your own remix (a frame you made of your own pixie) is unlinked the same way, with a plain update of your own
+      record, and since it is yours it is moved to "pixies" as your regular pixie right away (promoteRemix()). If
+      the move fails, the mark stays and your next session finishes it (promoteUnlinkedRemixes()).
+    - Someone else's remix that can't be unlinked (a hub made before can_modify_referencing_records existed, which
+      only the project owner can turn on for an existing hub; a remix that doesn't reference the hub; or a backend
+      that refuses the update) stays in the family, and the hub's owner is told why.
 */
+// Whether removeFrame() can take frame f out of the family { rootId, hub } (see above).
+function canRemoveFrame(f, edit) {
+    const { rootId, hub } = edit || {};
+    if (!f?.record_id || f.record_id === rootId) return false;
+    if (f.user_id === me.user_id) return true;
+    return !!hub?.source?.can_modify_referencing_records && !!hub.record_id && f.reference === hub.record_id;
+}
+
 async function removeFrame(f) {
     const { rootId, hub } = framesEdit;
-    const who = authorLabel(await getUserInfo(f.user_id));
+    if (!f?.record_id || f.record_id === rootId) return; // the first pixie stays in its own family
     const mine = f.user_id === me.user_id;
-    const canUnlink = !mine && !!hub?.source?.can_modify_referencing_records && f.reference === hub.record_id;
-    let unlinked = false;
-    let fellBack = false;
-    if (canUnlink) {
-        if (!confirm(`Remove this remix by ${who} from your family? It isn't deleted: it stops being a frame here, and becomes ${who}'s regular pixie the next time they open pixie.`)) return;
-        try {
-            await unlinkRemix(f, rootId, hub.record_id);
-            unlinked = true;
-        } catch (err) {
-            console.warn("Remix not unlinked", err);
-            if (!confirm(`This remix couldn't be unlinked (${err.message}). Delete it for everyone instead?`)) return;
-            fellBack = true;
-        }
-    } else if (!confirm(mine
-        ? `Remove this remix by ${who}? It is deleted for everyone.`
-        : `Remove this remix by ${who}? This family can't unlink remixes, so it is deleted for everyone.`)) {
+    if (!canRemoveFrame(f, framesEdit)) {
+        alert(f.reference && f.reference === hub?.record_id
+            ? "This family was made before remixes could be taken out of it, so this remix stays. Nothing was deleted."
+            : "This remix was made before remix families could take remixes out, so it stays. Nothing was deleted.");
         return;
     }
+    const who = mine ? "" : authorLabel(await getUserInfo(f.user_id));
+    if (!confirm(mine
+        ? "Take your remix out of this family? It isn't deleted: it stops being a frame here and becomes your regular pixie."
+        : `Remove this remix by ${who} from your family? It isn't deleted: it stops being a frame here, and becomes ${who}'s regular pixie the next time they open pixie.`)) return;
+    let unlinked;
     try {
-        if (!unlinked) {
-            await skapi.deleteRecords({ record_id: f.record_id });
-            document.getElementById("post-" + f.record_id)?.remove();
-        }
+        unlinked = await unlinkRemix(f, rootId, hub?.record_id);
+    } catch (err) {
+        console.warn("Remix not unlinked", err);
+        alert(`This remix couldn't be taken out of the family (${err.message}). Nothing was deleted.`);
+        return;
+    }
+    if (framesEdit?.rootId === rootId) {
         framesEdit.list = framesEdit.list.filter((x) => x !== f);
         renderFramesEditor();
-        // The animations on screen are read again without it.
-        reloadFamily(rootId);
-        toast(unlinked ? "Remix unlinked: it becomes its maker's regular pixie the next time they open pixie"
-            : mine ? "Remix removed"
-            : fellBack ? "Couldn't unlink it, so the remix was deleted"
-            : "Remix deleted: this family can't unlink remixes yet");
-    } catch (err) {
-        alert(err.message);
     }
+    // The animations on screen are read again without it.
+    reloadFamily(rootId);
+    if (!mine) {
+        toast("Remix unlinked: it becomes its maker's regular pixie the next time they open pixie");
+        return;
+    }
+    // Yours: it becomes your regular pixie now, not next session.
+    let promoted = null;
+    try {
+        promoted = await promoteRemix(unlinked);
+    } catch (err) {
+        console.warn("Your unlinked remix not moved to your pixies yet (tried again next time):", f.record_id, err);
+    }
+    toast(promoted ? "Remix taken out of the family: it is now your regular pixie"
+        : "Remix taken out of the family: it becomes your regular pixie the next time you open pixie");
+    if (promoted) await settlePromoted([promoted], me.user_id);
 }
 
 /*
-    Take someone's remix out of the family (see removeFrame()). The rest of its data stays as its maker shared it.
+    Take a remix out of the family (see removeFrame()). The rest of its data stays as its maker shared it.
     The index marks it for its maker's app (promoteUnlinkedRemixes()), which then reads only these records. The
     hub's remix_root restriction doesn't apply: it holds only for records that reference the hub.
+    Returns the record as it is now (the one on screen is not changed in place).
 */
-function unlinkRemix(f, rootId, hubId) {
+async function unlinkRemix(f, rootId, hubId) {
     const { remix_root, remix_hub, ...data } = f.data || {};
     data.remix_unlinked = { root: remix_root || rootId, hub: remix_hub || hubId };
-    return skapi.postRecord(data, { record_id: f.record_id, reference: null, index: { name: UNLINKED_INDEX, value: f.user_id } });
+    const index = { name: UNLINKED_INDEX, value: f.user_id };
+    await skapi.postRecord(data, { record_id: f.record_id, reference: null, index });
+    return { ...f, data, index, reference: null };
 }
 
 /*
@@ -1638,6 +1624,12 @@ async function promoteUnlinkedRemixes() {
         }
     }
     if (!promoted.length) return 0;
+    await settlePromoted(promoted, user_id);
+    return promoted.length;
+}
+
+// After remixes of user_id were moved to "pixies" (promoteUnlinkedRemixes(), or removeFrame() for your own).
+async function settlePromoted(promoted, user_id) {
     // Each is now the first pixie of its own family: its hub is made before anything on screen asks for it.
     const hubs = await Promise.allSettled(promoted.map((p) => ensureHub(p)));
     for (const h of hubs) if (h.status === "rejected") console.warn(h.reason);
@@ -1647,7 +1639,6 @@ async function promoteUnlinkedRemixes() {
         for (const key of Object.keys(hubCache)) if (!promoted.some((p) => p.record_id === key)) delete hubCache[key];
         if (location.hash.slice(1) !== "myprivate") initialFetch();
     }
-    return promoted.length;
 }
 
 async function saveFrameOrder() {
@@ -1731,13 +1722,15 @@ function stopFrames(anim) {
 /* ================================================================== sharing on Instagram, Threads, X... */
 
 /*
-    The Share panel. An animated pixie is shared as a video (made in the background as soon as the panel opens,
-    so the phone's share sheet can open the moment you tap: browsers allow it only right after a tap), a still
-    one as a picture (js/share.js). Public pixies can also be posted as a link.
+    The Share panel: the phone's share sheet (Share…), links to post, and "Save and post it yourself"
+    (saveChoices()). An animated pixie is shared and saved as a video, a still one as a picture (js/share.js).
+    A video takes as long to make as it plays, so it is made only when a button asks for it: Video, or the first
+    tap on the share button (browsers open the share sheet only right after a tap, so the next tap shares it).
+    It is made once per opening of the panel, and the buttons waiting for it show its progress. Closing the panel,
+    or opening it for another pixie, stops it (shareJob). Public pixies can also be posted as a link.
 */
 let shareJob = 0;
 let sharePreviewTimer = 0;
-let shareMedia = null; // { file } ready to share
 
 function stopSharePreview() {
     clearInterval(sharePreviewTimer);
@@ -1752,15 +1745,85 @@ function canShareFile(type, ext) {
     }
 }
 
+/*
+    What "Save and post it yourself" offers, in the order of its buttons: { id, label, name, make() } (make()
+    gives the file's Blob, or a Promise of it), and { id, label, video: true } for the video, which openShare()
+    makes. frames: the family's frames in play order (or the pixie alone); own: this pixie's frame, for the still
+    formats; video: what videoSupport() said (null when the browser can't record one); name: the maker's name.
+*/
+function saveChoices(options) {
+    const { base, frames, own, name, video } = options;
+    const animated = frames.length > 1;
+    const anim = animated ? "-animation" : "";
+    return [
+        animated && video ? { id: "saveVideoButton", label: "Video", video: true } : null,
+        { id: "saveImageButton", label: "Image", name: `${base}-1080.png`, make: () => makeShareImage(own, { by: name }) },
+        { id: "saveGifButton", label: animated ? "GIF animation" : "GIF", name: `${base}${anim}.gif`, make: () => toGif(frames, FRAME_MS, 20) },
+        { id: "saveGifSmallButton", label: animated ? "GIF animation 16×16" : "GIF 16×16", name: `${base}${anim}-16x16.gif`, make: () => toGif(frames, FRAME_MS, 1) },
+        { id: "savePngButton", label: "PNG 512×512", name: `${base}-512.png`, make: () => toBlob(own, 32) },
+        { id: "saveIcoButton", label: "ICO 16×16", name: `${base}.ico`, make: () => toIco(own) },
+    ].filter(Boolean);
+}
+
+const SAVE_BUTTONS = ["saveVideoButton", "saveImageButton", "saveGifButton", "saveGifSmallButton", "savePngButton", "saveIcoButton"];
+
+// The text of a button (after its icon, when it has one).
+function setButtonText(button, text) {
+    const label = button.querySelector(".label");
+    if (label) label.textContent = text;
+    else button.textContent = text;
+}
+
+// "Making video… 42%" on a button, which fills as the video is made.
+function showVideoProgress(button, f) {
+    const pct = Math.max(0, Math.min(100, Math.round(f * 100)));
+    button.classList.add("busy");
+    button.style.setProperty("--progress", pct + "%");
+    setButtonText(button, `Making video… ${pct}%`);
+}
+
+function endVideoProgress(button) {
+    button.classList.remove("busy");
+    button.style.removeProperty("--progress");
+}
+
+/*
+    A Save or share button at work. It is not disabled, since disabling the button that has focus drops focus to
+    the page: it is marked aria-disabled (and aria-busy) and keeps focus, and its click does nothing meanwhile.
+*/
+function setWorking(button, on) {
+    if (on) {
+        button.setAttribute("aria-disabled", "true");
+        button.setAttribute("aria-busy", "true");
+    } else {
+        button.removeAttribute("aria-disabled");
+        button.removeAttribute("aria-busy");
+    }
+}
+
+function isWorking(button) {
+    return button.disabled || button.getAttribute("aria-disabled") === "true";
+}
+
 async function openShare(article, p, name) {
+    openPanel("sharePanel"); // closing the panels stops what an earlier opening was making (shareJob)
     const job = ++shareJob;
-    closeDownloadMenus();
-    openPanel("sharePanel");
-    shareMedia = null;
+    const shareButton = $("shareFileButton");
+    const status = $("shareStatus");
+    // Nothing set up for the pixie shared before can be tapped while this one loads.
+    for (const b of [...SAVE_BUTTONS.map($), shareButton]) {
+        b.disabled = true;
+        b.onclick = null;
+        setWorking(b, false);
+        endVideoProgress(b);
+    }
+    $("saveVideoButton").hidden = true;
+    shareButton.hidden = true;
     const record_id = p.record_id;
-    $("shareStatus").textContent = article._hasFamily && !article._familyInfo ? "Loading the remixes…" : "";
+    status.textContent = article._hasFamily && !article._familyInfo ? "Loading the remixes…" : "";
     const frames = (await familyFrames(article)) || [p.data.pixels];
     if (job !== shareJob) return;
+    status.textContent = "";
     const animated = frames.length > 1;
     const isPrivate = p.table?.access_group === "private";
     const mine = p.user_id === me.user_id;
@@ -1808,60 +1871,135 @@ async function openShare(article, p, name) {
         }
     };
 
-    // Saving
+    // Saving: each file is made when its button is tapped.
     const base = `pixie-${record_id}`;
-    $("saveImageButton").onclick = async () => saveFile(await makeShareImage(own), `${base}.png`);
-    $("saveGifButton").onclick = () => saveFile(toGif(frames, FRAME_MS, 20), `${base}${animated ? "-animation" : ""}.gif`);
-    $("saveGifButton").lastChild.textContent = animated ? " GIF animation" : " GIF";
     const video = animated ? videoSupport() : null;
-    $("saveVideoButton").hidden = !video;
-    $("saveVideoButton").disabled = true;
+    const choices = saveChoices({ base, frames, own, name, video });
+    for (const id of SAVE_BUTTONS) $(id).hidden = !choices.some((c) => c.id === id);
+    for (const c of choices) {
+        const b = $(c.id);
+        setButtonText(b, c.label);
+        b.disabled = false;
+        if (c.video) continue;
+        b.onclick = async () => {
+            if (isWorking(b)) return;
+            setWorking(b, true);
+            try {
+                const blob = await c.make();
+                if (job === shareJob) saveFile(blob, c.name);
+            } catch (err) {
+                console.error(err);
+                if (job === shareJob) status.textContent = err.message;
+            } finally {
+                if (job === shareJob) setWorking(b, false);
+            }
+        };
+    }
 
-    // The file for the share sheet.
-    const shareButton = $("shareFileButton");
-    const status = $("shareStatus");
+    // The video, made once, on the first tap that asks for it. Its progress is on the buttons waiting for it, and
+    // in the status line, which screen readers announce.
+    let videoFile = null;
+    let videoMaking = null;
+    const videoWaiting = new Set(); // the buttons showing its progress
+    const makeVideo = () => (videoMaking ||= makeShareVideo(frames, FRAME_MS, {
+        onProgress: (f) => {
+            if (job !== shareJob) return;
+            for (const b of videoWaiting) showVideoProgress(b, f);
+            status.textContent = `Making your video… ${Math.max(0, Math.min(100, Math.round(f * 100)))}%`;
+        },
+        isCancelled: () => job !== shareJob,
+    }).then((v) => {
+        videoFile = new File([v.blob], `${base}.${v.ext}`, { type: v.type });
+        if (job === shareJob && !videoWaiting.has(shareButton)) setButtonText(shareButton, "Share video…");
+        return videoFile;
+    }, (err) => {
+        videoMaking = null; // a later tap tries again
+        throw err;
+    }));
+    // The video for a tap on button: its progress is shown on it, and it can't be tapped again meanwhile (it keeps
+    // focus: setWorking()). Null when it couldn't be made (or the panel moved on). idleText() is the button's text
+    // afterwards.
+    const videoFor = async (button, idleText) => {
+        if (videoFile) return videoFile;
+        setWorking(button, true);
+        videoWaiting.add(button);
+        showVideoProgress(button, 0);
+        if (videoWaiting.size === 1 && !videoMaking) status.textContent = "Making your video… 0%";
+        try {
+            return await makeVideo();
+        } catch (err) {
+            if (err.name !== "AbortError") {
+                console.error(err);
+                if (job === shareJob) status.textContent = err.message;
+            }
+            return null;
+        } finally {
+            videoWaiting.delete(button);
+            if (job === shareJob) {
+                endVideoProgress(button);
+                setButtonText(button, idleText());
+                setWorking(button, false);
+            }
+        }
+    };
+    const saveVideo = $("saveVideoButton");
+    if (!saveVideo.hidden) {
+        // It downloads as soon as it is made. That is long after the tap, which some browsers (iOS Safari) may not
+        // allow, so the button then reads "Save video": one more tap saves the same video at once.
+        saveVideo.onclick = async () => {
+            if (isWorking(saveVideo)) return;
+            const ready = !!videoFile;
+            const file = await videoFor(saveVideo, () => (videoFile ? "Save video" : "Video"));
+            if (!file || job !== shareJob) return;
+            saveFile(file, file.name);
+            if (!ready) status.textContent = "Your video is ready and downloading. If it doesn't, tap Save video.";
+        };
+    }
+
+    // The phone's share sheet.
+    const videoType = video ? video.split(";")[0] : "";
     const kind = video ? "video" : animated ? "GIF" : "image";
-    const ext = video ? (video.startsWith("video/mp4") ? "mp4" : "webm") : animated ? "gif" : "png";
-    const mime = video ? video.split(";")[0] : animated ? "image/gif" : "image/png";
+    const mime = video ? videoType : animated ? "image/gif" : "image/png";
+    const ext = video ? (videoType === "video/mp4" ? "mp4" : "webm") : animated ? "gif" : "png";
     const sheet = canShareFile(mime, ext);
     shareButton.hidden = !sheet;
-    shareButton.disabled = true;
-    shareButton.textContent = `Share ${kind}…`;
-    status.textContent = sheet ? "" : "Pick a site below, or save the " + kind + " and post it from the app.";
-    try {
-        let file;
-        if (video) {
-            status.textContent = "Making your video… 0%";
-            const v = await makeShareVideo(frames, FRAME_MS, {
-                onProgress: (f) => {
-                    if (job === shareJob) status.textContent = `Making your video… ${Math.round(f * 100)}%`;
-                },
-            });
-            file = new File([v.blob], `${base}.${v.ext}`, { type: v.type });
-            if (job !== shareJob) return;
-            $("saveVideoButton").disabled = false;
-            $("saveVideoButton").onclick = () => saveFile(file, file.name);
-            status.textContent = sheet ? "Your video is ready." : "Your video is ready to save.";
-        } else if (animated) {
-            file = new File([toGif(frames, FRAME_MS, 20)], `${base}-animation.gif`, { type: "image/gif" });
-        } else {
-            file = new File([await makeShareImage(own)], `${base}.png`, { type: "image/png" });
+    if (!sheet) {
+        status.textContent = "Pick a site below, or save the " + kind + " and post it from the app.";
+        return;
+    }
+    const share = async (file) => {
+        try {
+            await navigator.share({ files: [file], title: "pixie", text: `${text} ${isPrivate ? "" : url}`.trim() });
+        } catch (err) {
+            if (err.name !== "AbortError") toast("Sharing didn't work: " + err.message);
         }
+    };
+    if (video) {
+        // The first tap makes the video; the share sheet opens only right after a tap, so the next one shares it.
+        const shareText = () => (videoFile ? "Share video…" : "Make video to share");
+        setButtonText(shareButton, shareText());
+        shareButton.disabled = false;
+        shareButton.onclick = async () => {
+            if (isWorking(shareButton)) return;
+            if (videoFile) return share(videoFile);
+            const file = await videoFor(shareButton, shareText);
+            if (file && job === shareJob) status.textContent = "Your video is ready: tap Share video… to post it.";
+        };
+        return;
+    }
+    // A picture or a GIF is quick to make: it is ready before the first tap.
+    setButtonText(shareButton, `Share ${kind}…`);
+    try {
+        const file = animated
+            ? new File([toGif(frames, FRAME_MS, 20)], `${base}-animation.gif`, { type: "image/gif" })
+            : new File([await makeShareImage(own, { by: name })], `${base}-1080.png`, { type: "image/png" });
         if (job !== shareJob) return;
-        shareMedia = { file };
+        shareButton.onclick = () => share(file);
         shareButton.disabled = false;
     } catch (err) {
         console.error(err);
         if (job === shareJob) status.textContent = err.message;
     }
-    shareButton.onclick = async () => {
-        if (!shareMedia) return;
-        try {
-            await navigator.share({ files: [shareMedia.file], title: "pixie", text: `${text} ${isPrivate ? "" : url}`.trim() });
-        } catch (err) {
-            if (err.name !== "AbortError") toast("Sharing didn't work: " + err.message);
-        }
-    };
 }
 
 /*
@@ -1937,13 +2075,6 @@ async function deleteShareCards(record_id) {
     try { localStorage.removeItem(`pixie:card:${me.user_id}:${record_id}`); } catch (err) { /* storage blocked */ }
 }
 
-function closeDownloadMenus() {
-    for (const m of document.querySelectorAll(".download-menu:not([hidden])")) {
-        m.hidden = true;
-        m.closest("article")?.querySelector(".download")?.setAttribute("aria-expanded", "false");
-    }
-}
-
 function saveFile(blob, name) {
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
@@ -1953,10 +2084,6 @@ function saveFile(blob, name) {
     a.remove();
     setTimeout(() => URL.revokeObjectURL(a.href), 4000);
 }
-
-document.addEventListener("click", (e) => {
-    if (!e.target.closest(".download-menu")) closeDownloadMenus();
-});
 
 function setLikeWord(article) {
     const n = Number(article.querySelector(".like-count").textContent);
@@ -2661,8 +2788,7 @@ async function openSharedPicture() {
 
 // Close what is on top, the way Escape and the back button do. False when nothing was open.
 function closeTopLayer() {
-    if (document.querySelector(".download-menu:not([hidden])")) closeDownloadMenus();
-    else if (!$("draftDialog").hidden) closePanels();
+    if (!$("draftDialog").hidden) closePanels();
     else if (!$("composeSheet").hidden) closeCompose();
     else if (!$("studioSheet").hidden) requestCloseStudio();
     else if (document.querySelector(".panel:not([hidden])")) closePanels();
@@ -2678,6 +2804,7 @@ function openPanel(id) {
 
 function closePanels() {
     stopSharePreview();
+    shareJob++; // what the Share panel was making (a video) stops, and its results are dropped
     for (const p of document.querySelectorAll(".panel")) p.hidden = true;
     if ($("studioSheet").hidden && $("composeSheet").hidden) lockScroll(false);
 }
