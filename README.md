@@ -31,7 +31,7 @@ It grew out of the photo gallery page of the Skapi HTML template (`templates-ska
 - **Link previews**: a shared link shows the pixie itself on Threads, X, KakaoTalk, Slack and others. Sharing a public pixie makes a public **share card** (a record in `share_cards` with a 1200×630 preview picture and `data.__skapi__.og`), and the link is `https://pixie.skapi.com/__skapi__/og/<card id>`: Skapi hosting answers it with a page whose preview tags come from the card, and sends people on to the pixie. Until the hosting route is live, links are the app's own address.
 - **Remix** a pixie: it opens in your studio; when you share it, it links back to the original and its maker is notified.
 - **Remix animations**: a pixie with remixes shows **▶ Remixes (N)**; tap it to fetch and play the whole remix family **frame by frame**, with the frame number and who drew it (tap the badge to pause). Nothing is fetched or played until you tap. Remix your own pixie to draw the next frame of an animation.
-- **Frames**: the maker of the first pixie can **reorder** the frames of its family and **remove** anyone's remix from it. Someone else's remix is **unlinked**, not deleted: it leaves the family and stays on its maker's page (in families whose hub was made before unlinking existed, it is deleted, as before).
+- **Frames**: the maker of the first pixie can **reorder** the frames of its family and **remove** anyone's remix from it. Someone else's remix is **unlinked**, not deleted: it leaves the family right away, and becomes its maker's **regular pixie** (an original in `pixies`, on their page, in Recent and under its tags, at the date it was first shared) the next time its maker opens pixie; until then it is under their My remixes (in families whose hub was made before unlinking existed, it is deleted, as before).
 - **Feeds list originals**: remixes are stored in their own table, so Recent, Following, tags and people's pages show only original pixies, however many remixes there are. Your remixes are under **My remixes**; anyone's remix opens on its own from a notification or a link.
 - **Avatars**: pick one of 12 pre-drawn avatars, **draw your own** in the studio, or keep the little 8×8 critter made from your account.
 - **Activity**: likes, comments, remixes and new followers arrive live while the app is open, and as **push notifications** when it isn't. You also get a push when someone you follow shares a pixie.
@@ -152,8 +152,8 @@ pixie keeps everything in seven tables:
 
 | Table | Access group | Holds |
 | --- | --- | --- |
-| `pixies` | `authorized` (any logged-in user), or `private` | Original pixies: `data: { pixels, description }` and tags. Private remixes are here too, and remixes shared before the `remixes` table existed. |
-| `remixes` | `authorized` | Public remixes: `data: { pixels, description, remix_of, remix_root, remix_hub }`, the index `remix_root = <first pixie's id>`, and a reference to the family's remix hub. `remix_of` is `{ record_id, user_id, name }` of the pixie it started from. A remix the family's maker unlinked has `remix_unlinked: { root, hub }` instead of `remix_root` and `remix_hub`, and no index or reference. Kept apart so the feeds, which read `pixies`, list originals only. |
+| `pixies` | `authorized` (any logged-in user), or `private` | Original pixies: `data: { pixels, description }` and tags. Private remixes are here too, remixes shared before the `remixes` table existed, and remixes unlinked from their family, moved here as originals by their maker's app. |
+| `remixes` | `authorized` | Public remixes: `data: { pixels, description, remix_of, remix_root, remix_hub }`, the index `remix_root = <first pixie's id>`, and a reference to the family's remix hub. `remix_of` is `{ record_id, user_id, name }` of the pixie it started from. A remix the family's maker unlinked has `remix_unlinked: { root, hub }` instead of `remix_root` and `remix_hub`, no reference, and the index `remix_unlinked = <its maker's user id>`, until its maker's app moves it to `pixies` (see below). Kept apart so the feeds, which read `pixies`, list originals only. |
 | `likes` | `public` | Empty records that **reference** a pixie. |
 | `comments` | `authorized` | `data: { comment }` with the index `comment.<pixie id>`. |
 | `share_cards` | `public` | One per pixie per person who shared a link to it: `data: { pixie, __skapi__: { og: { title, description, image, url } } }`, the index `pixie = <pixie id>`, and the preview picture as file `card`. Read by Skapi hosting's `/__skapi__/og/<record_id>` route (Skapi reads only `data.__skapi__`); deleted with the pixie. |
@@ -212,10 +212,29 @@ It demonstrates these features:
   ```js
   const { remix_root, remix_hub, ...data } = remix.data;
   data.remix_unlinked = { root: remix_root, hub: remix_hub };
-  await skapi.postRecord(data, { record_id: remix.record_id, reference: null, index: null });
+  await skapi.postRecord(data, {
+      record_id: remix.record_id,
+      reference: null,
+      index: { name: "remix_unlinked", value: remix.user_id }, // marks it for its maker's app (see below)
+  });
   ```
 
-  The remix no longer references the hub and no longer has the `remix_root` index, so neither family query finds it, and `inFamily()` counts a remix only while it has the family's index or references its hub, and never one that carries `data.remix_unlinked`. It keeps its art, caption and credit (`remix_of`), stays on its maker's page, and starts a family of its own. Its maker still owns it (Skapi records the hub's user as its `updated_by`). The setting can only be turned on when a record is created, so hubs made before it was added don't have it: for those (and if the update is refused), the maker deletes the remix with `deleteRecords()`, as before, and the toast says so. The project owner can turn it on for existing hubs: see [`scripts/enable-hub-modify.md`](scripts/enable-hub-modify.md). The maker's own remixes are deleted, as before.
+  The remix no longer references the hub and no longer has the `remix_root` index (the hub's `referencing_index_restrictions` apply only to records that reference it), so neither family query finds it, and `inFamily()` counts a remix only while it has the family's index or references its hub, and never one that carries `data.remix_unlinked`. It keeps its art, caption and tags, is never hidden from a feed (`hiddenInFeed()`), and starts a family of its own. Its maker still owns it. Skapi records the hub's user as its `updated_by`, until its maker's app moves it (below): an update by the record's own user clears `updated_by`. The setting can only be turned on when a record is created, so hubs made before it was added don't have it: for those (and if the update is refused), the maker deletes the remix with `deleteRecords()`, as before, and the toast says so. The project owner can turn it on for existing hubs: see [`scripts/enable-hub-modify.md`](scripts/enable-hub-modify.md). The maker's own remixes are deleted, as before.
+
+  **An unlinked remix becomes a regular pixie** (`promoteUnlinkedRemixes()`). The hub's user can't change a record's table, so the remix is still in `remixes`, which only My remixes reads. Its own maker moves it, so this happens **the next time its maker opens pixie**, not when it is unlinked (a maker who never comes back, such as a guest whose account is gone, leaves it under My remixes). Once per session, in the background after sign in (guests too), the app reads only your records with the index `remix_unlinked = <your user id>`, in `remixes` and in `pixies` (remixes shared before the `remixes` table existed), and updates each in place, with the same record id (so its likes and comments stay), into `pixies` as an original, with the settings `postPixie()` gives one. Two writes, so nothing is stranded: the move keeps the index, and only when the answer shows the record in `pixies` is the index dropped. A record that didn't move, or still has the index, is found and tried again next session.
+
+  ```js
+  const { remix_root, remix_hub, remix_of, ...data } = remix.data; // data.remix_unlinked stays
+  const moved = await skapi.postRecord(data, {
+      record_id: remix.record_id,
+      table: { name: "pixies", access_group: "authorized", subscription: { is_subscription_record: false, upload_to_feed: true, notify_subscribers: true } },
+      source: { prevent_multiple_referencing: true },
+      reference: null,
+  });
+  if (moved.table.name === "pixies") await skapi.postRecord(undefined, { record_id: remix.record_id, index: null });
+  ```
+
+  Tags stay; the "remix of" credit goes. It is now an original: its own family's first pixie, and the app makes its remix hub before the view on screen is read again (`ensureHub()` never posts two hubs for one pixie at once). It keeps its first `uploaded` time, so in Recent and on its maker's page it is listed where it was first shared, not at the top. Updating a record sends no notification. A remix that was unlinked while it was in `pixies` was already listed in the feeds; the move drops its credit and gives it an original's settings.
 - **Tags.** `getRecords({ table, tag })` gives the `#tag` views.
 - **Paging.** `getRecords(query, { ascending: false, limit: 6, fetchMore })` with `endOfList` drives infinite scroll, and the comments' *Show more* button.
 - **Updating and deleting.** `postRecord(data, { record_id })` changes your avatar; `deleteRecords({ record_id })` deletes pixies, likes (unlike) and your avatar.
@@ -260,7 +279,7 @@ The service worker shows both kinds of push. From `postRealtime()` it gets `{ ti
 
 The app is static files, so it can be served by Skapi's website hosting (HTTPS, which push needs) or any static host.
 
-**Remix unlinking** needs the Skapi backend with `can_modify_referencing_records`. Until it is deployed the backend ignores the setting, so new hubs post fine and removing a remix falls back to deleting it. Every page loads skapi-js **2.7.0** from jsDelivr. The Terms of Service (section 5) already describe unlinking.
+**Remix unlinking** uses `can_modify_referencing_records`, which the Skapi backend supports; every remix hub has it on. An unlinked remix becomes its maker's regular pixie the next time they open pixie (`promoteUnlinkedRemixes()`). Every page loads skapi-js **2.7.0** from jsDelivr. The Terms of Service (section 5) describe unlinking.
 
 ---
 
@@ -281,7 +300,7 @@ The app is static files, so it can be served by Skapi's website hosting (HTTPS, 
 | `og-image.png` | The link preview image. |
 | `privacy.html`, `terms.html` | The Privacy Policy and Terms of Service. |
 | `icons/logo-120.png` | A 120×120 logo for sign-in consent screens. |
-| `tests/remix-unlink.test.mjs` | `npm test`: a simulation of the remix hub code (unlinking, the delete fallback, family membership), with Skapi faked. Not part of the app. |
+| `tests/remix-unlink.test.mjs` | `npm test`: a simulation of the remix hub code (unlinking, the delete fallback, family membership, unlinked remixes becoming regular pixies), with Skapi faked. Not part of the app. |
 | `scripts/enable-hub-modify.md` | How the project owner turns on unlinking for remix hubs made before it existed. Not part of the app. |
 
 ## Libraries

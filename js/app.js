@@ -33,6 +33,8 @@ const POSTS_TABLE = "pixies";
 */
 const REMIX_TABLE = "remixes";
 const PIXIE_TABLES = [POSTS_TABLE, REMIX_TABLE];
+// The index (value: its maker's user id) a remix gets when its family's maker unlinks it (see unlinkRemix()).
+const UNLINKED_INDEX = "remix_unlinked";
 
 const $ = (id) => document.getElementById(id);
 const section_posts = $("section_posts");
@@ -1078,6 +1080,7 @@ async function createArticleContent(p) {
 */
 const HUB_TABLE = { name: "remix_hubs", access_group: "authorized" };
 const hubCache = {}; // root record id -> Promise of the hub record, or null
+const hubMaking = {}; // root record id -> Promise of the hub ensureHub() is posting for it
 
 function getRecordOrNull(record_id) {
     return skapi.getRecords({ record_id }).then((r) => r.list[0] || null).catch(() => null);
@@ -1098,11 +1101,29 @@ function getHub(rootId, ownerId) {
     return hubCache[rootId];
 }
 
-// The hub of a pixie; its maker makes one if there is none yet (pixies shared before hubs existed).
+/*
+    The hub of a pixie; its maker makes one if there is none yet (pixies shared before hubs existed). Calls for one
+    pixie while its hub is being posted wait for that hub instead of posting another: getHub() picks one hub per
+    pixie, and remixes that referenced a second one would drop out of the family.
+*/
 async function ensureHub(root) {
     if (!root?.record_id) return null;
-    const found = await getHub(root.record_id, root.user_id);
+    const id = root.record_id;
+    if (hubMaking[id]) return hubMaking[id];
+    const found = await getHub(id, root.user_id);
     if (found || root.user_id !== me.user_id || root.table?.access_group === "private") return found;
+    // Another call may have started making it while this one read.
+    if (hubMaking[id]) return hubMaking[id];
+    const making = makeHub(root);
+    hubMaking[id] = making;
+    try {
+        return await making;
+    } finally {
+        if (hubMaking[id] === making) delete hubMaking[id];
+    }
+}
+
+async function makeHub(root) {
     const post = (source) => skapi.postRecord({ root: root.record_id, order: [] }, {
         table: HUB_TABLE,
         index: { name: "root", value: root.record_id },
@@ -1130,8 +1151,9 @@ async function ensureHub(root) {
 /* ================================================================== remix families */
 
 /*
-    A remix the family's maker took out of the family (removeFrame()) carries data.remix_unlinked. It keeps its
-    art, caption and credit (remix_of), and starts a family of its own: remixes of it join that one.
+    A remix the family's maker took out of the family (removeFrame()) carries data.remix_unlinked, and keeps it.
+    It is never hidden from the feeds, and its maker's app moves it to "pixies" as an original the next time they
+    open pixie (promoteUnlinkedRemixes()). It starts a family of its own: remixes of it join that one.
 */
 function isUnlinked(p) {
     return !!p?.data?.remix_unlinked;
@@ -1205,10 +1227,13 @@ function hubRemixes(hubId) {
 /*
     The feeds list originals. Remixes are seen by playing their family (▶ Remixes), in My remixes, your own
     page, and when opened on their own (a notification or a link). Remixes shared before the "remixes" table
-    existed are still in "pixies": they are skipped here the same way.
+    existed are still in "pixies": they are skipped here the same way. A remix that was unlinked from its family
+    is a regular pixie: it is never skipped.
 */
 function hiddenInFeed(p) {
-    const isRemix = p.table?.name === REMIX_TABLE || !!p.data?.remix_root || isUnlinked(p);
+    // A remix its family's maker unlinked is its maker's regular pixie (see promoteUnlinkedRemixes()), never hidden.
+    if (isUnlinked(p)) return false;
+    const isRemix = p.table?.name === REMIX_TABLE || !!p.data?.remix_root;
     if (!isRemix || p.table?.access_group === "private") return false;
     const view = location.hash.slice(1);
     if (["myposts", "myprivate", "myremixes", "mostliked", "mostcomment"].includes(view) || view.startsWith("post=")) return false;
@@ -1482,9 +1507,12 @@ function moveFrame(n, d) {
     The hub's owner takes a remix out of the family.
     - Someone else's remix is unlinked, not deleted. The hub has can_modify_referencing_records, so its owner may
       update a remix that references it, and change only its data, tags and index, or drop the reference. The
-      update drops the reference to the hub (reference: null) and the remix_root index, and moves remix_root and
-      remix_hub in its data to remix_unlinked, so no query and no check (inFamily()) counts it in the family
-      again. Its maker keeps it, with its art, caption and credit.
+      update drops the reference to the hub (reference: null), moves remix_root and remix_hub in its data to
+      remix_unlinked, and replaces the remix_root index with remix_unlinked = <its maker's user id>, so no query
+      and no check (inFamily()) counts it in the family again. Its maker keeps it, with its art, caption and tags.
+      The hub's owner can't move it to another table: the next time its maker opens pixie, their app finds it by
+      that index and moves it to "pixies" as their regular pixie (promoteUnlinkedRemixes()). Until then it is
+      under its maker's My remixes.
     - A hub made before that setting existed (only the project owner can turn it on for an existing hub), a
       remix that doesn't reference the hub, or a backend that refuses the update: the remix is deleted instead
       (can_remove_referencing_records), as it always was.
@@ -1498,7 +1526,7 @@ async function removeFrame(f) {
     let unlinked = false;
     let fellBack = false;
     if (canUnlink) {
-        if (!confirm(`Remove this remix by ${who} from your family? It stays on ${who}'s page, it just isn't a frame here anymore.`)) return;
+        if (!confirm(`Remove this remix by ${who} from your family? It isn't deleted: it stops being a frame here, and becomes ${who}'s regular pixie the next time they open pixie.`)) return;
         try {
             await unlinkRemix(f, rootId, hub.record_id);
             unlinked = true;
@@ -1521,7 +1549,7 @@ async function removeFrame(f) {
         renderFramesEditor();
         // The animations on screen are read again without it.
         reloadFamily(rootId);
-        toast(unlinked ? "Remix unlinked: it stays on its maker's page"
+        toast(unlinked ? "Remix unlinked: it becomes its maker's regular pixie the next time they open pixie"
             : mine ? "Remix removed"
             : fellBack ? "Couldn't unlink it, so the remix was deleted"
             : "Remix deleted: this family can't unlink remixes yet");
@@ -1530,11 +1558,96 @@ async function removeFrame(f) {
     }
 }
 
-// Take someone's remix out of the family (see removeFrame()). The rest of its data stays as its maker shared it.
+/*
+    Take someone's remix out of the family (see removeFrame()). The rest of its data stays as its maker shared it.
+    The index marks it for its maker's app (promoteUnlinkedRemixes()), which then reads only these records. The
+    hub's remix_root restriction doesn't apply: it holds only for records that reference the hub.
+*/
 function unlinkRemix(f, rootId, hubId) {
     const { remix_root, remix_hub, ...data } = f.data || {};
     data.remix_unlinked = { root: remix_root || rootId, hub: remix_hub || hubId };
-    return skapi.postRecord(data, { record_id: f.record_id, reference: null, index: null });
+    return skapi.postRecord(data, { record_id: f.record_id, reference: null, index: { name: UNLINKED_INDEX, value: f.user_id } });
+}
+
+/*
+    A remix unlinked from its family (removeFrame()) becomes its maker's regular pixie. The family's maker could only
+    change its data, index and reference; the table stays "remixes", which only My remixes reads. So its own maker
+    moves it: once per session, in the background after signing in (guests too), the app reads your records with
+    the index remix_unlinked = <your user id> (unlinkRemix() sets it) in "remixes", and in "pixies" for remixes
+    shared before the "remixes" table existed, and updates each in place (same record id, so its likes and comments
+    stay) into "pixies", with the settings postPixie() gives an original. Its family fields and credit go
+    (remixOriginalData()), so it is an original: its own family's first pixie, with a hub of its own for remixes
+    of it. Moving a record doesn't notify anyone (Skapi notifies only when a record is created).
+
+    Two writes, so that nothing is stranded: the first moves it and keeps the index; only when the answer shows it
+    in "pixies" does the second drop the index. A remix that wasn't moved, or whose index is still there, is found
+    and tried again next session.
+*/
+// Its data as an original: the family fields and the credit go, remix_unlinked stays (it keeps it out of families).
+function remixOriginalData(data) {
+    const { remix_root, remix_hub, remix_of, ...rest } = data || {};
+    return rest;
+}
+
+// The postRecord() config that moves an unlinked remix p into "pixies" as an original (as postPixie() posts one).
+// The index is left out, so it stays until the move is confirmed.
+function promotionConfig(p) {
+    return {
+        record_id: p.record_id,
+        table: {
+            name: POSTS_TABLE,
+            access_group: "authorized",
+            subscription: { is_subscription_record: false, upload_to_feed: true, notify_subscribers: true },
+        },
+        source: { prevent_multiple_referencing: true },
+        reference: null,
+    };
+}
+
+// The records promoteUnlinkedRemixes() moves: your own public unlinked remixes still marked with the index.
+function toPromote(records, user_id) {
+    return records.filter((r) => r?.record_id && r.user_id === user_id && r.table?.access_group !== "private"
+        && isUnlinked(r) && r.index?.name === UNLINKED_INDEX);
+}
+
+// Move one unlinked remix into "pixies" (see above). Returns the record as it is now.
+async function promoteRemix(p) {
+    const data = remixOriginalData(p.data);
+    const moved = await skapi.postRecord(data, promotionConfig(p));
+    if (moved?.table?.name !== POSTS_TABLE) throw new Error(`not moved, still in "${moved?.table?.name}"`);
+    // In "pixies" now: the mark goes. Only the config changes (data undefined keeps the data).
+    const done = await skapi.postRecord(undefined, { record_id: p.record_id, index: null });
+    return { ...p, ...moved, ...done, record_id: p.record_id, user_id: p.user_id, data, table: { name: POSTS_TABLE, access_group: "authorized" } };
+}
+
+let promotedFor = null; // the user whose remixes this session has looked at
+
+async function promoteUnlinkedRemixes() {
+    const user_id = me?.user_id;
+    if (!user_id || promotedFor === user_id) return 0;
+    promotedFor = user_id;
+    const marked = (await Promise.all([REMIX_TABLE, POSTS_TABLE].map((name) => fetchAll(
+        { table: { name, access_group: "authorized" }, index: { name: UNLINKED_INDEX, value: user_id } }, Infinity,
+    ).catch((err) => (console.warn(`Unlinked remixes in "${name}" not checked (tried again next time):`, err), []))))).flat();
+    const promoted = [];
+    for (const p of toPromote(marked, user_id)) {
+        try {
+            promoted.push(await promoteRemix(p));
+        } catch (err) {
+            console.warn("Unlinked remix not moved to your pixies yet (tried again next time):", p.record_id, err);
+        }
+    }
+    if (!promoted.length) return 0;
+    // Each is now the first pixie of its own family: its hub is made before anything on screen asks for it.
+    const hubs = await Promise.allSettled(promoted.map((p) => ensureHub(p)));
+    for (const h of hubs) if (h.status === "rejected") console.warn(h.reason);
+    if (me?.user_id === user_id) {
+        // Families, remix lists and the lists on screen changed: read them again (the new hubs are kept).
+        for (const key of Object.keys(queryCache)) delete queryCache[key];
+        for (const key of Object.keys(hubCache)) if (!promoted.some((p) => p.record_id === key)) delete hubCache[key];
+        if (location.hash.slice(1) !== "myprivate") initialFetch();
+    }
+    return promoted.length;
 }
 
 async function saveFrameOrder() {
@@ -2866,6 +2979,8 @@ window.addEventListener("online", () => {
     refreshAvatars(me.user_id);
     getAvatar(me.user_id).then(() => refreshAvatars(me.user_id));
     initialFetch();
+    // Your remixes their family's maker unlinked become regular pixies (in the background; never blocks the app).
+    promoteUnlinkedRemixes();
     renderActivity();
     connectRealtime();
     updateGuestBanner();
